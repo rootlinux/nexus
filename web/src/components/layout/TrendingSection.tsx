@@ -56,7 +56,7 @@ export function TrendingSection() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {loading ? (
         <p style={{ margin: 0, color: tokens.colors.textSecondary, fontSize: tokens.font.sm }}>Reading the latest signal...</p>
-      ) : !feed || feed.items.length === 0 ? (
+      ) : !feed || !feed.items?.length ? (
         <p style={{ margin: 0, color: tokens.colors.textSecondary, fontSize: tokens.font.sm, lineHeight: 1.5 }}>
           Nothing is moving with enough weight yet. The rail will stay quiet until something earns it.
         </p>
