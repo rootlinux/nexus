@@ -1,5 +1,4 @@
 .git/
-.cursor/
 .vscode/
 .venv/
 .venv311/
@@ -30,7 +29,4 @@ backend/feedback_private_uploads/
 *.pyc
 mobile/.expo/
 web/tsconfig.tsbuildinfo
-.claude/
-.cline/
-.kilo/
 deploy/.env.docker
