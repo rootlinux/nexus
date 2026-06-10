@@ -24,6 +24,7 @@ from app.core.security import (
     create_mfa_session_token,
     create_refresh_token,
     get_password_hash,
+    hash_invite_code,
     hash_refresh_token,
     verify_password,
 )
@@ -582,6 +583,7 @@ async def register(
                 detail="This invite code is invalid or unavailable.",
             )
 
+        _invite_hash = hash_invite_code(user_data.invite_code)
         result = await db.execute(
             select(InviteCode)
             .options(
@@ -589,7 +591,12 @@ async def register(
                 selectinload(InviteCode.assigned_to_user),
                 selectinload(InviteCode.campaign),
             )
-            .where(InviteCode.code == user_data.invite_code)
+            .where(
+                or_(
+                    InviteCode.code_hash == _invite_hash,
+                    InviteCode.code_hash.is_(None) & (InviteCode.code == user_data.invite_code),
+                )
+            )
             .with_for_update()
         )
         invite = result.scalar_one_or_none()

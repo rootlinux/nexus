@@ -17,6 +17,7 @@ class InviteCode(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String(32), unique=True, nullable=False, index=True)
+    code_hash = Column(String(64), unique=True, nullable=True, index=True)
     invite_type = Column(
         SAEnum(
             InviteType,

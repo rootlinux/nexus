@@ -381,9 +381,9 @@ class Settings(BaseSettings):
             self.REDIS_URL.startswith("redis://")
             and not re.search(r":([^@]+)@", self.REDIS_URL)
         ):
-            _config_logger.warning(
-                "Redis is running without authentication or TLS in production. "
-                "Consider using rediss:// with a password."
+            raise ValueError(
+                "Redis must use authentication and TLS in production. "
+                "Set REDIS_URL to rediss://:password@host:port/db"
             )
 
         return self
