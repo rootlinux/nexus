@@ -452,9 +452,9 @@ export const getExploreFeed = async (mode: 'for_you' | 'trending', limit = 12) =
   return response.data;
 };
 
-export const getTrendingPosts = async (limit = 5) => {
+export const getTrendingPosts = async (limit = 5): Promise<import('../types').DiscoveryFeedResponse> => {
   const response = await api.get('/api/posts/trending', { params: { limit } });
-  return response.data;
+  return response.data as import('../types').DiscoveryFeedResponse;
 };
 
 // Discover page API functions

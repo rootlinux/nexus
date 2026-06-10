@@ -102,18 +102,18 @@ export function DiscoveryFeed({ items, variant = 'full', mode = 'trending' }: Di
                   {compactTrustFacts.join(' · ')}
                 </div>
               ) : null}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-                <span style={{ color: tokens.colors.textSecondary, fontSize: tokens.font.xs }}>
-                  {getDiscoveryModeLabel(mode)}
-                </span>
-                {item.category_label ? (
-                  <span style={{ color: tokens.colors.textSecondary, fontSize: tokens.font.xs }}>
-                    {item.category_label}
-                  </span>
-                ) : null}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', flexWrap: 'wrap' }}>
                 <span style={{ color: tokens.colors.textSecondary, fontSize: tokens.font.xs }}>
                   @{item.author.username}
                 </span>
+                {item.category_label ? (
+                  <>
+                    <span style={{ color: tokens.colors.textMuted, fontSize: tokens.font.xs }}>·</span>
+                    <span style={{ color: tokens.colors.textSecondary, fontSize: tokens.font.xs }}>
+                      {item.category_label}
+                    </span>
+                  </>
+                ) : null}
               </div>
               <div style={{
                 color: tokens.colors.textPrimary,
