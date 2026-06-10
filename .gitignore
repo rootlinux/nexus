@@ -71,6 +71,9 @@ web/.git/
 .swarm/
 .kilo/
 nexus-mcp/
+CLAUDE.md
+AGENTS.md
+GEMINI.md
 
 # Local runtime data
 ruvector.db
