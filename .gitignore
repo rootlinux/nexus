@@ -72,6 +72,7 @@ LOCAL_DEV_ACCOUNTS.md
 "Nexus Redesign Spec.html"
 Nexus\ Redesign\ Spec.html
 *.md
+!README.md
 docs/
 
 # Nested directory (should not be committed)
