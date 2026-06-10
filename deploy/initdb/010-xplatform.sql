@@ -1,0 +1,3 @@
+-- Deploy init intentionally left schema-empty.
+-- The backend container runs `alembic upgrade head` after startup; do not place
+-- fixture rows, password hashes, invite codes, or bootstrap identities here.

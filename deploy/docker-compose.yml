@@ -1,0 +1,136 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: x-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-xplatform}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: x-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: x-backend
+    restart: unless-stopped
+    environment:
+      # These defaults are for the local production-like smoke stack only.
+      # Real deployment values must be supplied explicitly through the deploy env file.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-xplatform}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      APP_ENV: ${APP_ENV:-production}
+      ENABLE_BOOTSTRAP_ADMIN: ${ENABLE_BOOTSTRAP_ADMIN:-false}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      ADMIN_SERVICE_TOKEN: ${ADMIN_SERVICE_TOKEN:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_DISPLAY_NAME: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:-}
+      ENABLE_ADMIN_WEBAUTHN_RECOVERY: ${ENABLE_ADMIN_WEBAUTHN_RECOVERY:-false}
+      ADMIN_WEBAUTHN_RECOVERY_IDENTIFIER: ${ADMIN_WEBAUTHN_RECOVERY_IDENTIFIER:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://app.x.localtest.me:3000}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-api.x.localtest.me}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      REFRESH_COOKIE_SAMESITE: ${REFRESH_COOKIE_SAMESITE:-lax}
+      REFRESH_COOKIE_SECURE: ${REFRESH_COOKIE_SECURE:-}
+      REFRESH_COOKIE_DOMAIN: ${REFRESH_COOKIE_DOMAIN:-}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-app.x.localtest.me}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-Nexus}
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-http://app.x.localtest.me:3000}
+      UPLOADS_CACHE_CONTROL: ${UPLOADS_CACHE_CONTROL:-public, max-age=3600}
+      MAIL_PROVIDER: ${MAIL_PROVIDER:-capture}
+      MAIL_CAPTURE_DIR: ${MAIL_CAPTURE_DIR:-tmp/mail}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM_EMAIL: ${MAIL_FROM_EMAIL:-no-reply@localhost}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Nexus}
+      WEB_BASE_URL: ${WEB_BASE_URL:-http://app.x.localtest.me:3000}
+      LOCAL_UPLOAD_DIR: /app/uploads
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ../backend/uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import os, urllib.request; host=os.environ['ALLOWED_HOSTS'].split(',')[0].strip(); req=urllib.request.Request('http://127.0.0.1:8000/ready', headers={'Host': host}); urllib.request.urlopen(req)\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        # Local-smoke default only; production must set the public API base URL explicitly.
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://api.x.localtest.me:8000}
+    container_name: x-web
+    restart: unless-stopped
+    environment:
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://x-backend:8000}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://api.x.localtest.me:8000}
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+  caddy:
+    image: caddy:2-alpine
+    container_name: x-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      APP_HOST: ${APP_HOST:-linusx.xyz}
+      API_HOST: ${API_HOST:-api.linusx.xyz}
+    depends_on:
+      - web
+      - backend
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

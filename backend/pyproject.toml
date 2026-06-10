@@ -1,0 +1,7 @@
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+# E402: intentional in users.py (PIL security limit must precede other imports)
+# E711/E712: SQLAlchemy uses __eq__ for SQL IS NULL / = TRUE generation — `== None` and `== True` are correct
+ignore = ["E402", "E711", "E712"]

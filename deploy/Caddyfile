@@ -1,0 +1,24 @@
+# WARNING: LOCAL/SMOKE ONLY.
+# This file is only for the local `localtest.me` smoke stack.
+# DO NOT use this file for production. Production must use `deploy/Caddyfile.prod`.
+# This file intentionally disables automatic HTTPS because it is only for localhost-style smoke testing.
+{
+  auto_https off
+}
+
+app.x.localtest.me {
+  encode zstd gzip
+
+  @serviceWorker path /sw.js
+  header @serviceWorker Cache-Control "no-cache, no-store, must-revalidate"
+
+  @manifest path /manifest.webmanifest
+  header @manifest Cache-Control "public, max-age=0, must-revalidate"
+
+  reverse_proxy web:3000
+}
+
+api.x.localtest.me {
+  encode zstd gzip
+  reverse_proxy backend:8000
+}
