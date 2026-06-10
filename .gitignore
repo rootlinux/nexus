@@ -67,7 +67,7 @@ web/.git/
 *.swp
 *.swo
 
-# Local AI/agent config
+# Local config and tooling
 .mcp.json
 .claude-flow/
 .swarm/
