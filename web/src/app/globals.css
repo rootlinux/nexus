@@ -1,0 +1,738 @@
+@import "tailwindcss";
+
+/* ─── Design Tokens ────────────────────────────────────────────────────────── */
+
+:root {
+  --background:      #0a0a0a;
+  --surface:         #141414;
+  --surface-elevated:#1c1c1c;
+  --border:          #242424;
+  --border-subtle:   #1c1c1c;
+  --text-primary:    #f0f0f0;
+  --text-secondary:  #666666;
+  --text-muted:      #404040;
+  --accent:          #c9a96e;
+  --accent-hover:    #d4b87e;
+  --on-accent:       #1a0f00;
+  --danger:          #f4212e;
+  --success:         #00ba7c;
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --app-height: 1vh;
+}
+
+/* Tailwind v4: expose tokens as utility-class colors */
+@theme inline {
+  --color-background:       var(--background);
+  --color-surface:          var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-border:           var(--border);
+  --color-border-subtle:    var(--border-subtle);
+  --color-text-primary:     var(--text-primary);
+  --color-text-secondary:   var(--text-secondary);
+  --color-text-muted:       var(--text-muted);
+  --color-accent:           var(--accent);
+  --color-accent-hover:     var(--accent-hover);
+  --color-on-accent:        var(--on-accent);
+  --color-danger:           var(--danger);
+  --color-success:          var(--success);
+
+  --font-sans: system-ui, sans-serif;
+}
+
+/* ─── Base Reset ───────────────────────────────────────────────────────────── */
+
+html {
+  color-scheme: dark;
+  background-color: var(--background);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  min-height: calc(var(--app-height) * 100);
+  background-color: var(--background);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+::-webkit-scrollbar {
+  width: 0px;
+}
+
+/* ─── Utility Classes ──────────────────────────────────────────────────────── */
+
+.surface {
+  background: var(--surface);
+}
+
+.surface-elevated {
+  background: var(--surface-elevated);
+}
+
+.border-subtle {
+  border: 1px solid var(--border);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+/* Headings: tight tracking per design system */
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+/* Gold Write button — gradient per design spec */
+.btn-write {
+  background: linear-gradient(135deg, var(--accent), #b1905a);
+  color: var(--on-accent);
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-radius: 0.625rem;
+  padding: 0.75rem 1.5rem;
+  border: none;
+  transition: filter 300ms ease-out;
+}
+
+.btn-write:hover {
+  filter: brightness(1.08);
+}
+
+/* Ghost button */
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  font-size: 0.875rem;
+  padding: 0.5rem 1rem;
+  transition: background 300ms ease-out, color 300ms ease-out, border-color 300ms ease-out, opacity 150ms ease-out;
+}
+
+.btn-ghost:hover {
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+}
+
+.btn-ghost:active:not(:disabled) {
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+.btn-ghost:disabled {
+  color: var(--text-muted);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-ghost:disabled:hover {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.btn-ghost:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Glass overlay — nav bars, dropdowns */
+.glass {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: rgba(20, 20, 20, 0.7);
+}
+
+/* Hide scrollbar, keep scroll */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ─── Animations ───────────────────────────────────────────────────────────── */
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ─── Accessibility ────────────────────────────────────────────────────────── */
+
+input:focus,
+textarea:focus,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background-color: rgba(201, 169, 110, 0.25);
+}
+
+.app-shell {
+  min-height: 100vh;
+  min-height: calc(var(--app-height) * 100);
+}
+
+/* In standalone mode (PWA installed) the viewport extends behind the status
+   bar. Push the entire shell down so sidebar content and page headers never
+   overlap the notch / Dynamic Island. The background (#0a0a0a) fills the gap
+   seamlessly since it matches theme_color in the manifest. */
+html[data-display-mode="standalone"] .app-shell {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* Sidebar must grow by the same amount to stay full-height. */
+html[data-display-mode="standalone"] .app-sidebar {
+  height: calc(100vh + env(safe-area-inset-top)) !important;
+}
+
+.app-main {
+  padding-bottom: 0;
+}
+
+.app-mobile-nav {
+  padding-bottom: max(8px, var(--safe-area-bottom));
+}
+
+.profile-cover-base,
+.profile-cover-media,
+.profile-cover-overlay,
+.profile-cover-content {
+  position: absolute;
+  inset: 0;
+}
+
+.profile-page {
+  --profile-cover-height: clamp(160px, 20vw, 220px);
+  --profile-avatar-overlap: clamp(36px, 6vw, 48px);
+}
+
+.profile-cover {
+  position: relative;
+  height: var(--profile-cover-height);
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at top right, rgba(201, 169, 110, 0.14), transparent 42%),
+    linear-gradient(135deg, #1c1c1c 0%, #111111 55%, #080808 100%);
+}
+
+.profile-cover-base {
+  background:
+    #0d0e12,
+    linear-gradient(135deg, rgba(255, 255, 255, 0.02), transparent 46%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.18) 0%, rgba(0, 0, 0, 0.56) 100%);
+}
+
+.profile-cover-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+.profile-cover-media {
+  opacity: 0.92;
+}
+
+.profile-cover-overlay {
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.12) 0%, rgba(0, 0, 0, 0.48) 100%),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.2) 0%, transparent 38%, rgba(0, 0, 0, 0.28) 100%);
+  pointer-events: none;
+}
+
+.profile-cover-content {
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profile-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.profile-summary-shell {
+  padding: 0 24px 20px 24px;
+}
+
+.profile-hero-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: var(--profile-avatar-overlap);
+}
+
+.profile-avatar-anchor {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  margin-top: calc(var(--profile-avatar-overlap) * -1);
+}
+
+.profile-identity {
+  padding-top: 12px;
+}
+
+.app-sticky-header {
+  padding-top: max(12px, calc(12px + var(--safe-area-top)));
+}
+
+/* In standalone (installed PWA) the status-bar sits inside the viewport.
+   Force safe-area-top padding so headers never render under the notch.
+   !important is required to override per-element inline padding styles. */
+html[data-display-mode="standalone"] .app-sticky-header {
+  padding-top: max(16px, env(safe-area-inset-top)) !important;
+}
+
+/* Messages pane headers don't carry .app-sticky-header but need the same
+   safe-area-top treatment in standalone mode. */
+html[data-display-mode="standalone"] .messages-sidebar-header,
+html[data-display-mode="standalone"] .messages-thread-header {
+  padding-top: max(16px, env(safe-area-inset-top)) !important;
+}
+
+.auth-shell,
+.messages-shell {
+  min-height: 100vh;
+  min-height: calc(var(--app-height) * 100);
+}
+
+.auth-shell,
+.auth-shell > div,
+.auth-form-wrap,
+.auth-mode-switcher,
+.auth-mode-switcher > button {
+  min-width: 0;
+}
+
+.messages-thread-stream {
+  overscroll-behavior: contain;
+}
+
+.messages-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8d8d8d;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.messages-empty-state__inner {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 0 auto;
+}
+
+.messages-empty-state__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #6d6d6d;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.messages-empty-state__title {
+  color: #f5f5f5;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.messages-empty-state__body {
+  max-width: 34ch;
+}
+
+.messages-empty-state--sidebar {
+  min-height: 100%;
+  padding: 40px 20px;
+}
+
+.messages-empty-state--sidebar .messages-empty-state__inner {
+  max-width: 220px;
+  gap: 9px;
+}
+
+.messages-empty-state--sidebar .messages-empty-state__icon {
+  width: 40px;
+  height: 40px;
+}
+
+.messages-empty-state--thread {
+  flex: 1;
+  min-height: 100%;
+  padding: clamp(32px, 7vh, 72px) 24px;
+}
+
+.messages-empty-state--thread .messages-empty-state__inner {
+  max-width: 300px;
+  transform: translateY(-2%);
+}
+
+.messages-empty-state--placeholder {
+  flex: 1;
+  min-height: 100%;
+  padding: clamp(28px, 6vh, 64px) 24px max(28px, calc(28px + var(--safe-area-bottom)));
+}
+
+.messages-empty-state--placeholder .messages-empty-state__inner {
+  max-width: 292px;
+  transform: translateY(-3%);
+}
+
+.messages-composer {
+  padding-bottom: max(16px, calc(16px + var(--safe-area-bottom)));
+}
+
+.messages-mobile-back {
+  display: none;
+}
+
+.profile-tabs,
+.admin-tab-row {
+  scrollbar-width: none;
+}
+
+.profile-tabs::-webkit-scrollbar,
+.admin-tab-row::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .app-sidebar {
+    width: 220px !important;
+    padding: 16px 10px !important;
+  }
+
+  .app-rail {
+    width: 296px !important;
+    padding: 16px 12px !important;
+  }
+}
+
+@media (max-width: 960px) {
+  .auth-shell {
+    flex-direction: column !important;
+  }
+
+  .auth-branding,
+  .auth-panel {
+    width: 100% !important;
+    padding: 24px 20px !important;
+  }
+
+  .auth-branding {
+    padding-top: max(24px, calc(24px + var(--safe-area-top))) !important;
+  }
+
+  .auth-branding h1 {
+    font-size: 32px !important;
+    max-width: 100% !important;
+  }
+
+  .auth-branding p {
+    max-width: 100% !important;
+  }
+
+  .auth-panel {
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    padding-bottom: max(24px, calc(24px + var(--safe-area-bottom))) !important;
+  }
+
+  .auth-form-wrap {
+    max-width: 100% !important;
+  }
+}
+
+@media (max-width: 860px) {
+  .messages-shell {
+    display: block !important;
+  }
+
+  .messages-sidebar,
+  .messages-thread {
+    width: 100% !important;
+    min-height: calc(var(--app-height) * 100 - 1px);
+    border-right: none !important;
+  }
+
+  .messages-shell[data-has-thread='true'] .messages-sidebar {
+    display: none !important;
+  }
+
+  .messages-shell[data-has-thread='false'] .messages-thread {
+    display: none !important;
+  }
+
+  .messages-mobile-back {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 640px) {
+  .auth-shell {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .app-main {
+    max-width: 100% !important;
+    padding-bottom: calc(76px + var(--safe-area-bottom)) !important;
+  }
+
+  .app-mobile-nav {
+    height: auto !important;
+    min-height: 64px;
+    padding-left: max(10px, var(--safe-area-left));
+    padding-right: max(10px, var(--safe-area-right));
+  }
+
+  .auth-branding,
+  .auth-panel,
+  .bookmarks-page,
+  .explore-page,
+  .invites-page,
+  .post-detail-page,
+  .profile-page,
+  .search-page,
+  .admin-page {
+    overflow-x: hidden;
+  }
+
+  .auth-branding,
+  .auth-panel {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .auth-mode-switcher > button {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+
+  .auth-branding h1 {
+    font-size: 28px !important;
+  }
+
+  .messages-sidebar-header,
+  .messages-thread-header,
+  .bookmarks-header,
+  .explore-header,
+  .invites-header,
+  .notifications-header,
+  .post-detail-header,
+  .profile-page-header,
+  .search-page-header,
+  .admin-page-header {
+    padding-left: max(16px, calc(16px + var(--safe-area-left))) !important;
+    padding-right: max(16px, calc(16px + var(--safe-area-right))) !important;
+  }
+
+  .messages-thread-stream {
+    padding: 16px !important;
+  }
+
+  .messages-empty-state--thread,
+  .messages-empty-state--placeholder {
+    padding-left: max(16px, calc(16px + var(--safe-area-left)));
+    padding-right: max(16px, calc(16px + var(--safe-area-right)));
+  }
+
+  .messages-empty-state--thread .messages-empty-state__inner,
+  .messages-empty-state--placeholder .messages-empty-state__inner {
+    transform: none;
+  }
+
+  .messages-bubble-wrap {
+    max-width: 86% !important;
+  }
+
+  .messages-composer {
+    padding: 12px 16px !important;
+    padding-bottom: max(12px, calc(12px + var(--safe-area-bottom))) !important;
+  }
+
+  .messages-composer-row {
+    align-items: flex-end !important;
+  }
+
+  .messages-composer-row textarea {
+    min-height: 44px !important;
+  }
+
+  .search-page-header,
+  .explore-header,
+  .bookmarks-header,
+  .notifications-header,
+  .invites-header,
+  .post-detail-header,
+  .profile-page-header,
+  .admin-page-header {
+    padding-bottom: 12px !important;
+  }
+
+  .search-page-empty,
+  .search-page-feedback,
+  .explore-page-feedback,
+  .bookmarks-empty,
+  .invites-feedback,
+  .post-detail-feedback,
+  .profile-feedback {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .invite-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .invites-list,
+  .invite-campaigns {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .profile-summary-shell {
+    padding: 0 16px 18px 16px !important;
+  }
+
+  .profile-hero-row {
+    gap: 12px !important;
+  }
+
+  .profile-actions {
+    justify-content: flex-end !important;
+  }
+
+  .profile-identity {
+    padding-top: 10px !important;
+  }
+
+  .profile-stats {
+    flex-wrap: wrap !important;
+    gap: 14px !important;
+  }
+
+  .profile-tabs {
+    overflow-x: auto;
+  }
+
+  .profile-tabs button {
+    min-width: max-content;
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
+  .post-detail-context,
+  .post-detail-reply {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .admin-page-body {
+    padding: 12px !important;
+  }
+
+  .admin-tab-row {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+}
+
+@media (max-width: 420px) {
+  .messages-empty-state__icon {
+    width: 42px;
+    height: 42px;
+  }
+
+  .messages-empty-state--sidebar,
+  .messages-empty-state--thread,
+  .messages-empty-state--placeholder {
+    padding-top: 28px;
+    padding-bottom: 28px;
+  }
+
+  .invite-stats-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .messages-bubble-wrap {
+    max-width: 92% !important;
+  }
+}

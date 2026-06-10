@@ -1,0 +1,24 @@
+# WARNING: PRODUCTION ONLY.
+# Use this file for real production deployments after setting real hostnames.
+# Do NOT reuse the local/smoke `deploy/Caddyfile`, which intentionally disables automatic HTTPS.
+# Required before launch:
+#   export APP_HOST=app.example.com
+#   export API_HOST=api.example.com
+# Replace those example values with the real production hostnames for this environment.
+
+{$APP_HOST} {
+  encode zstd gzip
+
+  @serviceWorker path /sw.js
+  header @serviceWorker Cache-Control "no-cache, no-store, must-revalidate"
+
+  @manifest path /manifest.webmanifest
+  header @manifest Cache-Control "public, max-age=0, must-revalidate"
+
+  reverse_proxy web:3000
+}
+
+{$API_HOST} {
+  encode zstd gzip
+  reverse_proxy backend:8000
+}

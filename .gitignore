@@ -1,0 +1,89 @@
+# Environment files
+.env
+.env.*
+*.env.local
+!.env.example
+!.env.*.example
+deploy/.env.docker
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+venv/
+.venv/
+.venv311/
+backend/.venv/
+backend/venv/
+*.egg-info/
+dist/
+build/
+
+# Node / frontend
+node_modules/
+.next/
+out/
+coverage/
+test-results/
+.expo/
+.turbo/
+
+# Logs
+*.log
+*.pid
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local verification and runtime artifacts
+archive/
+.smoke/
+artifacts/
+testsprite_tests/tmp/
+web/testsprite_tests/
+tmp/mail/
+backend/tmp/
+backend/uploads/
+backend/feedback_private_uploads/
+stitch.zip
+
+# Local tools and nested repos
+.vscode/
+.idea/
+.cursor/
+.claude/
+mobile/
+web/.git/
+*.swp
+*.swo
+
+# Local AI/agent config
+.mcp.json
+.claude-flow/
+.swarm/
+.kilo/
+nexus-mcp/
+
+# Local runtime data
+ruvector.db
+
+# Personal local files
+LOCAL_DEV_ACCOUNTS.md
+özet.md
+"Nexus Redesign Spec.html"
+Nexus\ Redesign\ Spec.html
+
+# Nested directory (should not be committed)
+X/
+
+# OS
+.DS_Store
+Thumbs.db
