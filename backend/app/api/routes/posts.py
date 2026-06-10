@@ -534,7 +534,6 @@ async def create_post(
             await db.commit()
             raise_review_required_error(ModerationSurface.POST_MEDIA)
     
-    # Check if parent_id refers to valid post
     if post_data.parent_id:
         result = await db.execute(
             select(Post).where(Post.id == post_data.parent_id, visible_post_filter())
@@ -595,7 +594,6 @@ async def create_post(
             raise_blocked_interaction_error()
         quoted_target = _normalize_repost_target(quoted_target)
     
-    # Create new post
     new_post = Post(
         user_id=current_user.id,
         content=normalized_content,
@@ -626,7 +624,6 @@ async def create_post(
     await db.commit()
     await db.refresh(new_post)
     
-    # Load author relationship
     result = await db.execute(
         select(Post)
         .options(*post_query_options())
@@ -718,10 +715,9 @@ async def toggle_like(
     """
     await enforce_rate_limits(request, _like_toggle_policies(current_user.id))
 
-    # Check if post exists
     result = await db.execute(select(Post).where(Post.id == post_id, visible_post_filter()))
     post = result.scalar_one_or_none()
-    
+
     if not post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -733,8 +729,7 @@ async def toggle_like(
         raise_blocked_interaction_error()
 
     await enforce_rate_limits(request, _like_toggle_target_policies(current_user.id, post.id, post.user_id))
-    
-    # Check if user already liked this post
+
     like_result = await db.execute(
         select(Like).where(
             Like.user_id == current_user.id,
@@ -742,14 +737,12 @@ async def toggle_like(
         )
     )
     existing_like = like_result.scalar_one_or_none()
-    
+
     if existing_like:
-        # Remove like
         await db.delete(existing_like)
         post.likes_count = max(0, post.likes_count - 1)
         liked = False
     else:
-        # Add like
         new_like = Like(
             user_id=current_user.id,
             post_id=post_id
@@ -783,10 +776,9 @@ async def toggle_repost(
     """
     await enforce_rate_limits(request, _repost_mutation_policies(current_user.id))
 
-    # Check if post exists
     result = await db.execute(select(Post).options(*post_query_options()).where(Post.id == post_id, visible_post_filter()))
     post = result.scalar_one_or_none()
-    
+
     if not post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -794,7 +786,7 @@ async def toggle_repost(
         )
     if (await get_block_relationship(db, current_user_id=current_user.id, target_user_id=post.user_id)).is_blocked:
         raise_blocked_interaction_error()
-    
+
     post = _normalize_repost_target(post)
 
     repost_result = await db.execute(
@@ -902,22 +894,20 @@ async def get_post_replies(
     - Sorted by created_at in the requested order
     """
     await enforce_rate_limits(request, _post_replies_policies(_read_scope_key(request, current_user, "post:replies"), authenticated=current_user is not None))
-    # Check if post exists
+
     result = await db.execute(
         select(Post).where(Post.id == post_id, visible_post_filter())
     )
     post = result.scalar_one_or_none()
-    
+
     if not post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Post not found"
         )
-    
-    # Calculate skip from page
+
     skip = (page - 1) * limit
-    
-    # Get replies
+
     count_result = await db.execute(
         select(func.count())
         .select_from(Post)
@@ -967,12 +957,11 @@ async def create_reply(
     """
     await enforce_rate_limits(request, _reply_mutation_policies(current_user.id))
 
-    # Check if parent post exists
     result = await db.execute(
         select(Post).where(Post.id == post_id, visible_post_filter())
     )
     parent_post = result.scalar_one_or_none()
-    
+
     if not parent_post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -980,8 +969,7 @@ async def create_reply(
         )
     if (await get_block_relationship(db, current_user_id=current_user.id, target_user_id=parent_post.user_id)).is_blocked:
         raise_blocked_interaction_error()
-    
-    # Create the reply
+
     new_reply = Post(
         user_id=current_user.id,
         content=reply_data.content,
@@ -997,8 +985,7 @@ async def create_reply(
     
     await db.commit()
     await db.refresh(new_reply)
-    
-    # Load author relationship
+
     result = await db.execute(
         select(Post)
         .options(*post_query_options())

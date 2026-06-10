@@ -24,7 +24,6 @@ class HTTPBearerWith401(HTTPBearer):
             raise HTTPException(status_code=401, detail="Not authenticated")
 
 
-# Security scheme
 security = HTTPBearerWith401()
 optional_security = HTTPBearer(auto_error=False)
 

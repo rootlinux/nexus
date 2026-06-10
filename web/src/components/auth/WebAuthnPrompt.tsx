@@ -101,7 +101,6 @@ export function WebAuthnPrompt({ mfaSessionToken, onSuccess, onCancel }: WebAuth
 
     try {
       const options = await webauthnAuthBegin(mfaSessionToken)
-      // The browser opens the platform authenticator / security key dialog
       const credential = await startAuthentication({ optionsJSON: options })
       await onSuccess(credential)
     } catch (err: unknown) {
