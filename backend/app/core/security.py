@@ -66,13 +66,11 @@ def create_refresh_token() -> str:
 
 
 def hash_refresh_token(token: str) -> str:
-    """
-    Hash a refresh token for secure storage.
-    
-    Returns:
-        SHA256 hash of the token
-    """
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def hash_invite_code(code: str) -> str:
+    return hashlib.sha256(code.encode()).hexdigest()
 
 
 def verify_refresh_token(token: str, stored_hash: str) -> bool:

@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import require_admin_session, require_capability
 from app.core.authorization import Capability, user_has_capability
 from app.core.database import get_db
+from app.core.security import hash_invite_code
 from app.core.rate_limit import RATE_LIMIT_ERROR, RateLimitPolicy, build_scope_key, enforce_rate_limits
 from app.models.admin_audit_log import AdminAuditLog
 from app.models.invite_usage import InviteUsage
@@ -2432,6 +2433,7 @@ async def create_waitlist_invite(
 
     new_invite = InviteCode(
         code=code,
+        code_hash=hash_invite_code(code),
         invite_type=InviteType.GENERIC,
         created_by_id=current_admin.id,
         internal_note=internal_note,

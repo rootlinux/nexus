@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.datetime_utils import ensure_utc_datetime
 from app.core.authorization import Capability
+from app.core.security import hash_invite_code
 from app.models.invite import InviteCode, InviteType
 from app.models.invite_campaign import InviteCampaign
 from app.models.staff_permission import StaffRole
@@ -201,6 +202,7 @@ async def create_campaign_invite(
 
     invite = InviteCode(
         code=code,
+        code_hash=hash_invite_code(code),
         invite_type=InviteType.REFERRAL,
         created_by_id=actor.id,
         generated_by_user_id=actor.id,
