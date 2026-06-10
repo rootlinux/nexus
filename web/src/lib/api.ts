@@ -495,9 +495,14 @@ export const getDiscoverUsers = async (limit = 12): Promise<DiscoverUsersRespons
 export const getDiscoverPosts = async (limit = 15): Promise<import('../types').DiscoveryFeedResponse> => {
   try {
     const response = await api.get('/api/discover/posts', { params: { limit } });
-    return response.data as import('../types').DiscoveryFeedResponse;
+    const data = response.data;
+    // Backend may return DiscoverPostsResponse {posts, total, ...} instead of DiscoveryFeedResponse {items, mode, ...}
+    // Fall through to the explore endpoint if the expected shape is missing
+    if (!data || !Array.isArray(data.items)) {
+      throw new Error('unexpected_shape');
+    }
+    return data as import('../types').DiscoveryFeedResponse;
   } catch {
-    // Fall back to existing explore/trending feed until /api/discover/posts is deployed
     const response = await api.get('/api/posts/explore', { params: { mode: 'trending', limit } });
     return response.data as import('../types').DiscoveryFeedResponse;
   }
