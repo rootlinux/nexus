@@ -45,6 +45,7 @@ yarn-error.log*
 
 # Local verification and runtime artifacts
 archive/
+archive/ai-tooling/
 .smoke/
 artifacts/
 testsprite_tests/tmp/
@@ -59,6 +60,7 @@ stitch.zip
 .vscode/
 .idea/
 .cursor/
+.cline/
 .claude/
 mobile/
 web/.git/
@@ -83,6 +85,8 @@ LOCAL_DEV_ACCOUNTS.md
 özet.md
 "Nexus Redesign Spec.html"
 Nexus\ Redesign\ Spec.html
+*.md
+docs/
 
 # Nested directory (should not be committed)
 X/
