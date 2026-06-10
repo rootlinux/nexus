@@ -45,7 +45,6 @@ yarn-error.log*
 
 # Local verification and runtime artifacts
 archive/
-archive/ai-tooling/
 .smoke/
 artifacts/
 testsprite_tests/tmp/
@@ -59,23 +58,10 @@ stitch.zip
 # Local tools and nested repos
 .vscode/
 .idea/
-.cursor/
-.cline/
-.claude/
 mobile/
 web/.git/
 *.swp
 *.swo
-
-# Local config and tooling
-.mcp.json
-.claude-flow/
-.swarm/
-.kilo/
-nexus-mcp/
-CLAUDE.md
-AGENTS.md
-GEMINI.md
 
 # Local runtime data
 ruvector.db
