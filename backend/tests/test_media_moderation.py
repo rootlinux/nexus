@@ -1,7 +1,8 @@
 import os
 import secrets
+import struct
 import unittest
-from pathlib import Path
+import zlib
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/xplatform")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
@@ -12,8 +13,19 @@ from app.models.moderation_signal import ModerationDetectionStatus, ModerationSu
 from app.services.moderation_intake import assess_media_input, assess_media_url
 
 
-FIXTURES_DIR = Path(__file__).resolve().parent.parent / "uploads"
-VALID_PNG = (FIXTURES_DIR / "e2e-post-b.png").read_bytes()
+def _make_png(width: int = 100, height: int = 100) -> bytes:
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        c = tag + data
+        return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+
+    ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    row = b"\x00" + b"\xff\x00\x00" * width  # filter=None, solid red row
+    idat = chunk(b"IDAT", zlib.compress(row * height))
+    iend = chunk(b"IEND", b"")
+    return b"\x89PNG\r\n\x1a\n" + ihdr + idat + iend
+
+
+VALID_PNG = _make_png()
 
 
 class MediaModerationTests(unittest.TestCase):
