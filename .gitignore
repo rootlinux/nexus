@@ -91,6 +91,9 @@ docs/
 # Nested directory (should not be committed)
 X/
 
+# VPS deploy copy — synced via rsync, not git
+deploy/x-backend/
+
 # OS
 .DS_Store
 Thumbs.db
