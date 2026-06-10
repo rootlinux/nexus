@@ -60,7 +60,7 @@ def _dm_send_policies(sender_id: int, receiver_username: str) -> list[RateLimitP
     ]
 
 
-# Pydantic schemas
+
 class MessageCreate(BaseModel):
     content: str = Field(..., max_length=2000)
 

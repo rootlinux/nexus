@@ -275,7 +275,6 @@ export default function SignupPage() {
       // SUBMIT-TIME VALIDATION (AUTHORITATIVE)
       // =============================================================================
       // All validation happens HERE, not at blur-time.
-      // This is the authoritative check before any API call.
 
       if (!trimmedInvite) {
         setFieldErrors({ inviteCode: 'Enter an invite code to continue.' })

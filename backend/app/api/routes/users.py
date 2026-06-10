@@ -668,7 +668,7 @@ async def get_user_posts(
     - Sorted by created_at (newest first)
     """
     await enforce_rate_limits(request, _profile_read_policies(_profile_scope_key(request, current_user, "profile:posts"), authenticated=current_user is not None))
-    # Find user
+
     result = await db.execute(
         select(User).where(User.username == username)
     )
@@ -717,19 +717,17 @@ async def toggle_follow(
     """
     await enforce_rate_limits(request, _follow_toggle_policies(current_user.id))
 
-    # Find target user
     result = await db.execute(
         select(User).where(User.username == username)
     )
     target_user = result.scalar_one_or_none()
-    
+
     if not target_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
-    # Cannot follow yourself
+
     if target_user.id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -739,7 +737,6 @@ async def toggle_follow(
     if (await get_block_relationship(db, current_user_id=current_user.id, target_user_id=target_user.id)).is_blocked:
         raise_blocked_interaction_error()
     
-    # Check if already following
     follow_result = await db.execute(
         select(Follow).where(
             Follow.follower_id == current_user.id,
@@ -791,12 +788,12 @@ async def get_user_followers(
     - Sorted by follow created_at (newest first)
     """
     await enforce_rate_limits(request, _social_graph_read_policies(_profile_scope_key(request, current_user, "graph:followers"), authenticated=current_user is not None))
-    # Find user
+
     result = await db.execute(
         select(User).where(User.username == username)
     )
     user = result.scalar_one_or_none()
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -805,16 +802,14 @@ async def get_user_followers(
 
     if (await get_block_relationship(db, current_user_id=current_user.id if current_user else None, target_user_id=user.id)).is_blocked:
         raise_blocked_profile_error()
-    
-    # Get followers count
+
     count_result = await db.execute(
         select(func.count())
         .select_from(Follow)
         .where(Follow.following_id == user.id)
     )
     total = count_result.scalar()
-    
-    # Get followers with user details
+
     result = await db.execute(
         select(User)
         .join(Follow, Follow.follower_id == User.id)
@@ -862,12 +857,12 @@ async def get_user_following(
     - Sorted by follow created_at (newest first)
     """
     await enforce_rate_limits(request, _social_graph_read_policies(_profile_scope_key(request, current_user, "graph:following"), authenticated=current_user is not None))
-    # Find user
+
     result = await db.execute(
         select(User).where(User.username == username)
     )
     user = result.scalar_one_or_none()
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -876,16 +871,14 @@ async def get_user_following(
 
     if (await get_block_relationship(db, current_user_id=current_user.id if current_user else None, target_user_id=user.id)).is_blocked:
         raise_blocked_profile_error()
-    
-    # Get following count
+
     count_result = await db.execute(
         select(func.count())
         .select_from(Follow)
         .where(Follow.follower_id == user.id)
     )
     total = count_result.scalar()
-    
-    # Get following with user details
+
     result = await db.execute(
         select(User)
         .join(Follow, Follow.following_id == User.id)

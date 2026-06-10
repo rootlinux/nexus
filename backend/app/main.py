@@ -170,7 +170,6 @@ async def log_startup_configuration() -> None:
     await bootstrap_admin_if_configured()
 
 
-# Include API router
 app.include_router(api_router, prefix="/api")
 
 LEGACY_FEEDBACK_UPLOADS_PREFIX = f"{settings.LOCAL_UPLOAD_URL_PREFIX.rstrip('/')}/feedback"

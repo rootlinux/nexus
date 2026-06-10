@@ -3,7 +3,6 @@
 import type { Post } from '../../types'
 import type { AuthArrivalState } from '../../lib/arrival'
 
-// Helper to update a post in a collection (handles both direct posts and quoted/original posts)
 export function updatePostCollection(collection: Post[], targetPostId: number, updater: (post: Post) => Post): Post[] {
   return collection.map((post) => {
     if (post.id === targetPostId) {

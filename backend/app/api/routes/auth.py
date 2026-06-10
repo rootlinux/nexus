@@ -781,7 +781,6 @@ async def login(
     normalized_identifier = normalize_login_identifier(login_data.username)
     await enforce_rate_limits(request, _login_limit_policies(request, normalized_identifier))
 
-    # Find user by username or email
     result = await db.execute(
         select(User)
         .options(selectinload(User.inviter), selectinload(User.staff_permission))
@@ -832,7 +831,6 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Check if user is active
     try:
         enforce_not_banned(user)
     except HTTPException:
@@ -1036,7 +1034,6 @@ async def refresh_token(
     await enforce_rate_limits(request, _refresh_limit_policies(request, raw_refresh_token))
     token_hash = hash_refresh_token(raw_refresh_token)
     
-    # Find the refresh token in database
     result = await db.execute(
         select(RefreshToken).where(
             RefreshToken.token_hash == token_hash
@@ -1050,24 +1047,21 @@ async def refresh_token(
             detail="Invalid refresh token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Check if token is revoked
+
     if db_token.revoked:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Check if token is expired
+
     if db_token.expires_at < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Get the user
+
     result = await db.execute(
         select(User)
         .options(selectinload(User.inviter), selectinload(User.staff_permission))

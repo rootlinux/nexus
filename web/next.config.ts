@@ -13,38 +13,6 @@ function resolveCspSource(urlValue?: string) {
   }
 }
 
-// CSP is now set in src/middleware.ts with per-request nonce generation
-// This function is kept for reference but not used by headers()
-function buildContentSecurityPolicy() {
-  const apiOrigin = resolveCspSource(process.env.NEXT_PUBLIC_API_BASE_URL);
-  const connectSources = ["'self'"];
-  const imageSources = ["'self'", "data:", "blob:"];
-  const mediaSources = ["'self'", "blob:"];
-
-  if (apiOrigin) {
-    connectSources.push(apiOrigin);
-    imageSources.push(apiOrigin);
-    mediaSources.push(apiOrigin);
-  }
-
-  return [
-    "default-src 'self'",
-    "base-uri 'self'",
-    "object-src 'none'",
-    "form-action 'self'",
-    "frame-ancestors 'none'",
-    "frame-src 'none'",
-    "manifest-src 'self'",
-    "worker-src 'self'",
-    // CSP with nonce is handled by middleware.ts
-    "style-src 'self' 'unsafe-inline'",
-    `img-src ${imageSources.join(' ')}`,
-    `media-src ${mediaSources.join(' ')}`,
-    "font-src 'self' data:",
-    `connect-src ${connectSources.join(' ')}`,
-  ].join('; ');
-}
-
 const isProd = process.env.NODE_ENV === 'production';
 
 const nextConfig: NextConfig = {
