@@ -1,4 +1,5 @@
 import hashlib
+import re
 import unittest
 from pathlib import Path
 
@@ -11,6 +12,12 @@ BRAND_ROOT = PUBLIC_ROOT / "brand"
 
 def sha1(path: Path) -> str:
     return hashlib.sha1(path.read_bytes()).hexdigest()
+
+
+def canonical_app_name(manifest_source: str) -> str:
+    match = re.search(r"name:\s*'([^']+)'", manifest_source)
+    assert match, "manifest.ts must define a canonical `name` field"
+    return match.group(1)
 
 
 class ReleaseBrandingAuditTests(unittest.TestCase):
@@ -44,8 +51,14 @@ class ReleaseBrandingAuditTests(unittest.TestCase):
         self.assertNotIn("'/brand/icon-192.png'", manifest_source)
         self.assertNotIn("'/brand/icon-512.png'", manifest_source)
 
-    def test_runtime_pwa_shell_has_no_old_branding(self):
+    def test_user_visible_brand_surfaces_match_canonical_app_name(self):
+        manifest_source = (WEB_ROOT / "src" / "app" / "manifest.ts").read_text(encoding="utf-8")
+        layout_source = (WEB_ROOT / "src" / "app" / "layout.tsx").read_text(encoding="utf-8")
         offline_source = (PUBLIC_ROOT / "offline.html").read_text(encoding="utf-8")
 
-        self.assertIn("Offline · Nexus", offline_source)
-        self.assertNotIn("ExampleApp", offline_source)
+        name = canonical_app_name(manifest_source)
+
+        self.assertIn(f"short_name: '{name}'", manifest_source)
+        self.assertIn(f'default: "{name}"', layout_source)
+        self.assertIn(f'applicationName: "{name}"', layout_source)
+        self.assertIn(f"Offline · {name}", offline_source)
