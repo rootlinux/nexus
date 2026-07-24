@@ -5,9 +5,12 @@ export interface Tool {
   handler: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+
 interface NexusClientConfig {
   baseUrl: string;
   serviceToken: string;
+  requestTimeoutMs?: number;
 }
 
 interface ApiError {
@@ -19,10 +22,12 @@ interface ApiError {
 export class NexusClient {
   private baseUrl: string;
   private serviceToken: string;
+  private requestTimeoutMs: number;
 
   constructor(config: NexusClientConfig) {
     this.baseUrl = config.baseUrl;
     this.serviceToken = config.serviceToken;
+    this.requestTimeoutMs = config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
   private async request<T>(
@@ -39,13 +44,22 @@ export class NexusClient {
     const options: RequestInit = {
       method,
       headers,
+      signal: AbortSignal.timeout(this.requestTimeoutMs),
     };
 
     if (body && method !== "GET") {
       options.body = JSON.stringify(body);
     }
 
-    const response = await fetch(url, options);
+    let response: Response;
+    try {
+      response = await fetch(url, options);
+    } catch (error) {
+      if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+        throw new Error(`Request to ${path} timed out after ${this.requestTimeoutMs}ms`);
+      }
+      throw error;
+    }
 
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}`;
@@ -77,10 +91,6 @@ export class NexusClient {
     return this.request<unknown>("GET", `/admin/service/users/${params.userId}`);
   }
 
-  async deleteUser(params: { userId: string }): Promise<unknown> {
-    return this.request<unknown>("DELETE", `/admin/service/users/${params.userId}`);
-  }
-
   async listPosts(params: {
     limit?: number;
     offset?: number;
@@ -94,22 +104,6 @@ export class NexusClient {
       query.set("user_id", params.userId);
     }
     return this.request<unknown>("GET", `/admin/service/posts?${query}`);
-  }
-
-  async deletePost(params: { postId: string }): Promise<unknown> {
-    return this.request<unknown>("DELETE", `/admin/service/posts/${params.postId}`);
-  }
-
-  async sendPushNotification(params: {
-    userId: string;
-    title: string;
-    body: string;
-  }): Promise<unknown> {
-    return this.request<unknown>("POST", `/admin/service/notifications/push`, {
-      user_id: params.userId,
-      title: params.title,
-      body: params.body,
-    });
   }
 
   async getStats(): Promise<unknown> {

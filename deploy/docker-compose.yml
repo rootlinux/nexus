@@ -124,7 +124,7 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     environment:
-      APP_HOST: ${APP_HOST:-example.com}
+      APP_HOST: ${APP_HOST:-app.example.com}
       API_HOST: ${API_HOST:-api.example.com}
     depends_on:
       - web

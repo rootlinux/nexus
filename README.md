@@ -62,6 +62,12 @@ This is where most of the engineering effort went:
 | **Authorization** | Staff permission system with audit logging, secure admin actions (MFA-gated) |
 | **Moderation** | Signal intake, moderation queue, user blocks, media moderation |
 
+**Production config validation:** `Settings()` fails fast on startup if it detects production-unsafe values — a weak `SECRET_KEY`, a `localhost`-origin CORS entry, a wildcard `ALLOWED_HOSTS`, or an unauthenticated Redis URL. If you deploy with `APP_ENV=production` and see:
+
+> `Redis must use authentication and TLS in production. Set REDIS_URL to rediss://:password@host:port/db`
+
+it means `REDIS_URL` is still using the local-dev `redis://host:port/db` form. Switch it to `rediss://:yourpassword@your-redis-host:6379/0` (TLS scheme + credentials) and restart.
+
 ## Testing
 
 40+ test modules, heavily weighted toward security behavior:

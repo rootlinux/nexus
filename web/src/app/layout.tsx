@@ -20,7 +20,7 @@ const hankenGrotesk = Hanken_Grotesk({
   display: "swap",
 });
 
-const BASE_URL = process.env.NEXT_PUBLIC_WEB_BASE_URL || 'https://example.com'
+const BASE_URL = process.env.NEXT_PUBLIC_WEB_BASE_URL || 'http://localhost:3000'
 
 export const metadata: Metadata = {
   title: {

@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies.service_auth import require_service_token
 from app.core.database import get_db
-from app.models.notification import NotificationType
 from app.models.post import Post
 from app.models.push_subscription import PushSubscription
 from app.models.user import User
@@ -45,7 +44,6 @@ async def list_users(
             "id": user.id,
             "username": user.username,
             "display_name": user.display_name,
-            "email": user.email,
             "status": user.status.value,
             "is_active": user.is_active,
             "created_at": user.created_at.isoformat() if user.created_at else None,
@@ -68,13 +66,9 @@ async def get_user(
         "id": user.id,
         "username": user.username,
         "display_name": user.display_name,
-        "email": user.email,
         "status": user.status.value,
         "is_active": user.is_active,
         "created_at": user.created_at.isoformat() if user.created_at else None,
-        "banned_at": user.banned_at.isoformat() if user.banned_at else None,
-        "ban_reason": user.ban_reason,
-        "status_reason": user.status_reason,
     }
 
 
@@ -172,7 +166,7 @@ async def send_push_notification(
             "message": payload.body,
             "url": f"/{user.username}",
             "tag": f"admin-notif-{user.id}",
-            "notification_type": NotificationType.FOLLOW.value,
+            "notification_type": "admin_message",
             "icon": "/icon-192.png",
             "badge": "/icon-192.png",
         },
@@ -200,5 +194,4 @@ async def get_stats(
     return {
         "total_users": user_count,
         "total_posts": post_count,
-        "active_sessions": 0,
     }

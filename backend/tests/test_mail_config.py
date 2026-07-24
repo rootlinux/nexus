@@ -33,7 +33,7 @@ class MailConfigTests(unittest.TestCase):
         env.update(
             {
                 "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@localhost:5432/xdb",
-                "REDIS_URL": "redis://localhost:6379/0",
+                "REDIS_URL": "rediss://:testpassword@localhost:6379/0",
                 "SECRET_KEY": secrets.token_hex(64),
                 "APP_ENV": "production",
                 "DEBUG": "false",
@@ -177,7 +177,6 @@ class MailConfigTests(unittest.TestCase):
             self.assertIn(expected_label, message.text_body)
             self.assertIn(expected_label, message.html_body)
             self.assertIn("https://app.example.com/brand/apple-touch-icon.png", message.html_body)
-            self.assertNotIn("example.com", message.html_body)
             self.assertIn("<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">", message.html_body)
             self.assertIn("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">", message.html_body)
             self.assertIn('width="600"', message.html_body)
