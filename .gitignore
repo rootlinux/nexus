@@ -26,6 +26,7 @@ backend/venv/
 *.egg-info/
 dist/
 build/
+*.tsbuildinfo
 
 # Node / frontend
 node_modules/
@@ -80,6 +81,14 @@ X/
 
 # VPS deploy copy — synced via rsync, not git
 deploy/x-backend/
+
+# AI assistant tooling (local only, never ship)
+.claude/
+.claude-flow/
+.codex/
+.cursor/
+.windsurf/
+.mcp.json
 
 # OS
 .DS_Store

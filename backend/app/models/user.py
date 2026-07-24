@@ -54,7 +54,12 @@ class User(Base):
     invite_id_used = Column(Integer, ForeignKey("invite_codes.id"), nullable=True, index=True)
 
     # Relationships
-    created_invites = relationship("InviteCode", back_populates="created_by_user", foreign_keys="InviteCode.created_by_id")
+    created_invites = relationship(
+        "InviteCode",
+        back_populates="created_by_user",
+        foreign_keys="InviteCode.created_by_id",
+        passive_deletes=True,
+    )
     generated_campaign_invites = relationship(
         "InviteCode",
         back_populates="generated_by_user",
@@ -62,7 +67,12 @@ class User(Base):
     )
     assigned_invites = relationship("InviteCode", back_populates="assigned_to_user", foreign_keys="InviteCode.assigned_to_user_id")
     used_invite_codes = relationship("InviteCode", back_populates="used_by_user", foreign_keys="InviteCode.used_by_user_id")
-    invite_usages = relationship("InviteUsage", back_populates="used_by_user", foreign_keys="InviteUsage.used_by_user_id")
+    invite_usages = relationship(
+        "InviteUsage",
+        back_populates="used_by_user",
+        foreign_keys="InviteUsage.used_by_user_id",
+        passive_deletes=True,
+    )
     posts = relationship(
         "Post",
         back_populates="author",
@@ -82,8 +92,18 @@ class User(Base):
     notifications = relationship("Notification", foreign_keys="Notification.user_id", back_populates="user", cascade="all, delete-orphan")
     notification_settings = relationship("NotificationSettings", back_populates="user", cascade="all, delete-orphan", uselist=False)
     push_subscriptions = relationship("PushSubscription", back_populates="user", cascade="all, delete-orphan")
-    acted_notifications = relationship("Notification", foreign_keys="Notification.actor_user_id", back_populates="actor_user")
-    moderation_signals = relationship("ModerationSignal", foreign_keys="ModerationSignal.user_id", back_populates="actor_user")
+    acted_notifications = relationship(
+        "Notification",
+        foreign_keys="Notification.actor_user_id",
+        back_populates="actor_user",
+        passive_deletes=True,
+    )
+    moderation_signals = relationship(
+        "ModerationSignal",
+        foreign_keys="ModerationSignal.user_id",
+        back_populates="actor_user",
+        passive_deletes=True,
+    )
     resolved_moderation_signals = relationship("ModerationSignal", foreign_keys="ModerationSignal.resolved_by_user_id", back_populates="resolved_by_user")
     staff_permission = relationship(
         "StaffPermission",

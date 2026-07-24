@@ -812,6 +812,7 @@ async def get_user_followers(
 
     result = await db.execute(
         select(User)
+        .options(selectinload(User.inviter))
         .join(Follow, Follow.follower_id == User.id)
         .where(Follow.following_id == user.id)
         .order_by(Follow.created_at.desc())
@@ -881,6 +882,7 @@ async def get_user_following(
 
     result = await db.execute(
         select(User)
+        .options(selectinload(User.inviter))
         .join(Follow, Follow.following_id == User.id)
         .where(Follow.follower_id == user.id)
         .order_by(Follow.created_at.desc())

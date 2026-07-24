@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.authorization import Capability
+from app.core.datetime_utils import to_naive_utc_datetime
 from app.models.invite import InviteCode
 from app.models.staff_permission import StaffPermission, StaffRole
 
@@ -262,7 +263,7 @@ def apply_staff_permission_updates(
         staff_permission.invite_quota_monthly = None
 
     staff_permission.updated_by_user_id = updated_by_user_id
-    staff_permission.updated_at = datetime.now(timezone.utc)
+    staff_permission.updated_at = to_naive_utc_datetime(datetime.now(timezone.utc))
 
 
 def enforce_staff_assignment_permissions(

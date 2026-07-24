@@ -8,6 +8,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.datetime_utils import to_naive_utc_datetime
 from app.models.notification import Notification, NotificationType
 from app.models.notification_settings import NotificationSettings
 from app.models.post import Post
@@ -327,7 +328,7 @@ async def mark_notifications_read(db: AsyncSession, notifications: Iterable[Noti
     for notification in notifications:
         if notification.read_at is None:
             if timestamp is None:
-                timestamp = datetime.now(timezone.utc)
+                timestamp = to_naive_utc_datetime(datetime.now(timezone.utc))
             notification.read_at = timestamp
         elif first_existing is None:
             first_existing = notification.read_at

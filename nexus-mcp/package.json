@@ -1,0 +1,19 @@
+{
+  "name": "nexus-mcp",
+  "version": "1.0.0",
+  "description": "Model Context Protocol server for Nexus social network admin interface",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

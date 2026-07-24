@@ -39,7 +39,8 @@
   --color-danger:           var(--danger);
   --color-success:          var(--success);
 
-  --font-sans: system-ui, sans-serif;
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
 }
 
 /* ─── Base Reset ───────────────────────────────────────────────────────────── */
@@ -117,11 +118,27 @@ img {
   color: var(--text-secondary);
 }
 
-/* Headings: tight tracking per design system */
-h1, h2, h3, h4, h5, h6 {
+/* Headings: display serif, tight tracking per design system */
+h1, h2, h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+h4, h5, h6 {
   letter-spacing: -0.02em;
   line-height: 1.2;
   color: var(--text-primary);
+}
+
+/* Editorial pull-quotes / testimonials */
+blockquote {
+  font-family: var(--font-display);
+}
+
+.font-display {
+  font-family: var(--font-display);
 }
 
 /* Gold Write button — gradient per design spec */

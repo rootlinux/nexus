@@ -1,8 +1,24 @@
 import type { Metadata, Viewport } from "next";
+import { Fraunces, Hanken_Grotesk } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
 import { AuthProvider } from "../contexts/AuthContext";
 import { PwaBoot } from "../components/PwaBoot";
+
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-display",
+  style: ["normal", "italic"],
+  weight: ["300", "400", "500", "600", "700", "900"],
+  display: "swap",
+});
+
+const hankenGrotesk = Hanken_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
+});
 
 const BASE_URL = process.env.NEXT_PUBLIC_WEB_BASE_URL || 'https://example.com'
 
@@ -79,7 +95,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className="h-full antialiased"
+      className={`h-full antialiased ${fraunces.variable} ${hankenGrotesk.variable}`}
     >
       <head>
         {/* Next.js needs the nonce to inject its own inline scripts */}

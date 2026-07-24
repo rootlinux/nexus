@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "nexus-admin": {
+      "command": "node",
+      "args": ["/absolute/path/to/nexus-mcp/dist/index.js"],
+      "env": {
+        "NEXUS_API_BASE_URL": "https://api.example.com",
+        "NEXUS_SERVICE_TOKEN": "your-service-token-here"
+      }
+    }
+  }
+}

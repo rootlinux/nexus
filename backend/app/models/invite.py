@@ -30,7 +30,7 @@ class InviteCode(Base):
     )
     
     # Creator info (admin-created only in active product flow)
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     generated_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     campaign_id = Column(Integer, ForeignKey("invite_campaigns.id", ondelete="SET NULL"), nullable=True, index=True)
     internal_note = Column(String(255), nullable=True)

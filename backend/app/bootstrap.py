@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.datetime_utils import to_naive_utc_datetime
 from app.core.security import get_password_hash
 from app.models.staff_permission import StaffPermission, StaffRole
 from app.models.user import User, UserStatus
@@ -44,7 +45,7 @@ async def bootstrap_admin_if_configured() -> None:
             )
             return
 
-        now = datetime.now(timezone.utc)
+        now = to_naive_utc_datetime(datetime.now(timezone.utc))
         user = User(
             username=settings.BOOTSTRAP_ADMIN_USERNAME.strip(),
             email=settings.BOOTSTRAP_ADMIN_EMAIL.strip(),

@@ -11,7 +11,7 @@ from app.models.push_subscription import PushSubscription
 from app.models.user import User
 from app.services.push_notifications import send_push_payload_to_user, web_push_is_configured
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/admin/service", tags=["admin-service"])
 
 
 class PushNotificationRequest(BaseModel):

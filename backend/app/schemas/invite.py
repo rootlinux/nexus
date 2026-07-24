@@ -36,7 +36,7 @@ class InviteRead(BaseModel):
     """Schema for reading invite code data (response)."""
     id: int
     code: str
-    created_by_id: int
+    created_by_id: Optional[int] = None
     generated_by_user_id: Optional[int] = None
     campaign_id: Optional[int] = None
     internal_note: Optional[str] = None
