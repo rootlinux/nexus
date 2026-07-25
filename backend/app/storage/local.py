@@ -1,3 +1,4 @@
+import asyncio
 import re
 from pathlib import Path
 import uuid
@@ -20,12 +21,8 @@ class LocalStorageProvider(StorageProvider):
             self.upload_dir = (backend_root / configured_dir).resolve()
         self.url_prefix = (url_prefix or settings.LOCAL_UPLOAD_URL_PREFIX).rstrip("/")
 
-    async def save_file(self, *, content: bytes, content_type: str, original_filename: str | None = None) -> StoredMedia:
+    def _write_file_sync(self, file_path: Path, content: bytes) -> None:
         self.upload_dir.mkdir(parents=True, exist_ok=True)
-
-        storage_key = f"{uuid.uuid4()}{self._get_extension(content_type)}"
-        file_path = self.upload_dir / storage_key
-
         try:
             file_path.write_bytes(content)
         except Exception:
@@ -35,6 +32,11 @@ class LocalStorageProvider(StorageProvider):
                 except OSError:
                     pass
             raise
+
+    async def save_file(self, *, content: bytes, content_type: str, original_filename: str | None = None) -> StoredMedia:
+        storage_key = f"{uuid.uuid4()}{self._get_extension(content_type)}"
+        file_path = self.upload_dir / storage_key
+        await asyncio.to_thread(self._write_file_sync, file_path, content)
 
         return StoredMedia(
             storage_key=storage_key,
@@ -46,11 +48,7 @@ class LocalStorageProvider(StorageProvider):
 
     async def delete_file(self, *, storage_key: str) -> None:
         file_path = self.resolve_storage_path(storage_key)
-        try:
-            file_path.unlink(missing_ok=True)
-        except TypeError:
-            if file_path.exists():
-                file_path.unlink()
+        await asyncio.to_thread(file_path.unlink, True)  # missing_ok=True
 
     def get_static_mount_directory(self) -> str:
         return str(self.upload_dir)

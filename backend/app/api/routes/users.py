@@ -1,3 +1,4 @@
+import asyncio
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status, Request
@@ -389,7 +390,7 @@ async def upload_my_avatar(
         await db.commit()
         raise_review_required_error(assessment.surface_type)
 
-    sanitized = sanitize_profile_image(content)
+    sanitized = await asyncio.to_thread(sanitize_profile_image, content)
     previous_storage_key = _extract_storage_key_from_url(current_user.avatar_url)
 
     async def _op(compensation: list[str]) -> AvatarUploadResponse:
@@ -453,7 +454,7 @@ async def upload_my_cover(
         await db.commit()
         raise_review_required_error(assessment.surface_type)
 
-    sanitized = sanitize_profile_image(content)
+    sanitized = await asyncio.to_thread(sanitize_profile_image, content)
     previous_storage_key = _extract_storage_key_from_url(current_user.cover_url)
 
     async def _op(compensation: list[str]) -> CoverUploadResponse:

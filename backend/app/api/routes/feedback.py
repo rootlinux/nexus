@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import hmac
 import mimetypes
@@ -193,7 +194,7 @@ async def _validate_and_store_attachment(
     # formats via Pillow's own post-decode detection) — never store the raw upload.
     # Feedback attachments are staff-only rather than literally "public," but can still
     # carry sensitive EXIF (e.g. a screenshot with location data).
-    sanitized = sanitize_public_image(content, detected_content_type=detected_type)
+    sanitized = await asyncio.to_thread(sanitize_public_image, content, detected_content_type=detected_type)
     storage_provider = _get_feedback_storage_provider()
     try:
         asset = await write_media_to_storage_and_flush(
