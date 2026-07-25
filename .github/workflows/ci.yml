@@ -5,6 +5,10 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  # Kept in sync with the Node version pinned in web/Dockerfile.
+  NODE_LTS_VERSION: '22'
+
 jobs:
   backend-test:
     runs-on: ubuntu-latest
@@ -53,6 +57,29 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-      - name: Install and build
-        run: cd web && npm ci && npm run build
+          node-version: ${{ env.NODE_LTS_VERSION }}
+      - name: Install
+        run: cd web && npm ci
+      - name: Lint
+        run: cd web && npm run lint
+      - name: Build
+        run: cd web && npm run build
+
+  mcp-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_LTS_VERSION }}
+      - name: Install and test
+        run: cd nexus-mcp && npm ci && npm test
+
+  container-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -f backend/Dockerfile -t nexus-backend:ci backend
+      - name: Build web image
+        run: docker build -f web/Dockerfile -t nexus-web:ci web
