@@ -12,7 +12,14 @@ from app.core.database import get_db
 from app.core.rate_limit import RATE_LIMIT_ERROR, RateLimitPolicy, build_scope_key, enforce_rate_limits, get_client_ip, hash_key_part
 from app.core.upload_limits import reject_by_content_length_hint, read_upload_within_limit
 from app.core.security import get_password_hash, verify_password
+from app.models.media_asset import MediaAssetType
 from app.services.image_processing import sanitize_profile_image
+from app.services.media_assets import (
+    attach_pending_media,
+    mark_media_superseded,
+    run_media_operation,
+    write_media_to_storage_and_flush,
+)
 from app.models.block import Block
 from app.models.follow import Follow
 from app.models.user import User
@@ -55,6 +62,17 @@ from app.schemas.user import UserPrivateProfile, UserPublicProfile, UserAdminPro
 router = APIRouter(tags=["users"])
 
 # Moved to Settings.AVATAR_UPLOAD_MAX_BYTES / Settings.COVER_UPLOAD_MAX_BYTES (Round 2, Task 1) — values unchanged.
+
+
+def _extract_storage_key_from_url(public_url: str | None) -> str | None:
+    """Best-effort extraction of a storage_key from a previously-stored
+    avatar/cover public URL (e.g. "/uploads/<uuid>.jpg" -> "<uuid>.jpg").
+    Returns None for an unset/empty URL — mark_media_superseded already
+    treats an untracked/missing key as a legacy-compat no-op, so a None
+    here simply means "nothing to supersede," not an error."""
+    if not public_url:
+        return None
+    return public_url.rstrip("/").rsplit("/", 1)[-1] or None
 
 
 def _escape_like_pattern(value: str) -> str:
@@ -371,26 +389,40 @@ async def upload_my_avatar(
         await db.commit()
         raise_review_required_error(assessment.surface_type)
 
-    storage_provider = get_storage_provider()
     sanitized = sanitize_profile_image(content)
+    previous_storage_key = _extract_storage_key_from_url(current_user.avatar_url)
 
-    try:
-        stored_media = await storage_provider.save_file(
-            content=sanitized.content,
-            content_type=sanitized.content_type,
+    async def _op(compensation: list[str]) -> AvatarUploadResponse:
+        asset = await write_media_to_storage_and_flush(
+            db, owner_user_id=current_user.id, media_type=MediaAssetType.AVATAR,
+            content=sanitized.content, content_type=sanitized.content_type,
             original_filename=file.filename,
         )
+        compensation.append(asset.storage_key)
+        await attach_pending_media(
+            db, storage_key=asset.storage_key, owner_user_id=current_user.id,
+            attached_to_type="user_avatar", attached_to_id=current_user.id,
+        )
+        if previous_storage_key:
+            await mark_media_superseded(db, storage_key=previous_storage_key)
+
+        public_url = get_storage_provider().get_public_url(asset.storage_key)
+        signal.media_url = public_url
+        current_user.avatar_url = public_url
+        return AvatarUploadResponse(avatar_url=public_url)
+
+    try:
+        response = await run_media_operation(db, _op)
     except Exception as exc:
+        if isinstance(exc, HTTPException):
+            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to save uploaded file",
         ) from exc
 
-    signal.media_url = stored_media.public_url
-    current_user.avatar_url = stored_media.public_url
-    await db.commit()
     await db.refresh(current_user)
-    return AvatarUploadResponse(avatar_url=stored_media.public_url)
+    return response
 
 
 @router.post("/me/cover", response_model=CoverUploadResponse, status_code=status.HTTP_201_CREATED)
@@ -421,26 +453,40 @@ async def upload_my_cover(
         await db.commit()
         raise_review_required_error(assessment.surface_type)
 
-    storage_provider = get_storage_provider()
     sanitized = sanitize_profile_image(content)
+    previous_storage_key = _extract_storage_key_from_url(current_user.cover_url)
 
-    try:
-        stored_media = await storage_provider.save_file(
-            content=sanitized.content,
-            content_type=sanitized.content_type,
+    async def _op(compensation: list[str]) -> CoverUploadResponse:
+        asset = await write_media_to_storage_and_flush(
+            db, owner_user_id=current_user.id, media_type=MediaAssetType.COVER,
+            content=sanitized.content, content_type=sanitized.content_type,
             original_filename=file.filename,
         )
+        compensation.append(asset.storage_key)
+        await attach_pending_media(
+            db, storage_key=asset.storage_key, owner_user_id=current_user.id,
+            attached_to_type="user_cover", attached_to_id=current_user.id,
+        )
+        if previous_storage_key:
+            await mark_media_superseded(db, storage_key=previous_storage_key)
+
+        public_url = get_storage_provider().get_public_url(asset.storage_key)
+        signal.media_url = public_url
+        current_user.cover_url = public_url
+        return CoverUploadResponse(cover_url=public_url)
+
+    try:
+        response = await run_media_operation(db, _op)
     except Exception as exc:
+        if isinstance(exc, HTTPException):
+            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to save uploaded file",
         ) from exc
 
-    signal.media_url = stored_media.public_url
-    current_user.cover_url = stored_media.public_url
-    await db.commit()
     await db.refresh(current_user)
-    return CoverUploadResponse(cover_url=stored_media.public_url)
+    return response
 
 
 @router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)

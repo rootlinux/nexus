@@ -13,6 +13,7 @@ from app.models.post import Post, PostModerationStatus
 from app.models.user import User, UserStatus
 from app.schemas.post import PostRead
 from app.schemas.user import InviterRead, UserPublicRead
+from app.services.media_assets import mark_media_deleted_for_posts
 
 
 def post_query_options():
@@ -292,6 +293,12 @@ async def delete_post_closure(db: AsyncSession, root_post: Post, *, actor_user_i
         post.moderation_reason = reason
         post.moderated_at = datetime.now(timezone.utc)
         post.moderated_by_user_id = actor_user_id
+
+    # Legacy-tolerant: posts with a legacy media_url and no tracked MediaAsset
+    # row are silently skipped — deletion must never fail because tracking
+    # metadata doesn't exist for a pre-migration file. No quota is released
+    # for rows that were tracked (logical deletion only, dry-run-only cleanup).
+    await mark_media_deleted_for_posts(db, post_ids=list(delete_ids))
 
     await db.flush()
     await refresh_post_counts(db, affected_post_ids)

@@ -9,16 +9,21 @@ from urllib.parse import urlencode, urljoin
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from app.api.deps import get_current_user, require_admin_session
+from app.core.database import get_db
 from app.core.rate_limit import RATE_LIMIT_ERROR, RateLimitPolicy, build_scope_key, enforce_rate_limits, get_client_ip, hash_key_part
 from app.core.config import settings
 from app.core.upload_limits import reject_by_content_length_hint, read_upload_within_limit
 from app.services.image_processing import sanitize_public_image
+from app.models.feedback_report import FeedbackReport
+from app.models.media_asset import MediaAsset, MediaAssetType
 from app.models.user import User
 from app.schemas.auth import NeutralActionResponse
 from app.schemas.feedback import FeedbackAttachmentReference, FeedbackReportRequest
+from app.services.media_assets import attach_pending_media, run_media_operation, write_media_to_storage_and_flush
 from app.services.moderation_intake import BLOCKED_IMAGE_TYPES, inspect_media_bytes
 from app.services.mail import build_feedback_report_message, get_mail_sender
 from app.storage import get_storage_provider
@@ -144,7 +149,9 @@ def _verify_feedback_attachment_access(storage_key: str, *, expires: int, sig: s
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid attachment signature")
 
 
-async def _validate_and_store_attachment(request: Request, file: UploadFile) -> FeedbackAttachmentReference:
+async def _validate_and_store_attachment(
+    db: AsyncSession, request: Request, file: UploadFile, *, owner_user_id: int, compensation: list[str],
+) -> MediaAsset:
     reject_by_content_length_hint(
         request, limit=settings.FEEDBACK_ATTACHMENT_MAX_BYTES + settings.UPLOAD_GUARD_OVERHEAD_BYTES
     )
@@ -189,10 +196,10 @@ async def _validate_and_store_attachment(request: Request, file: UploadFile) -> 
     sanitized = sanitize_public_image(content, detected_content_type=detected_type)
     storage_provider = _get_feedback_storage_provider()
     try:
-        stored_media = await storage_provider.save_file(
-            content=sanitized.content,
-            content_type=sanitized.content_type,
-            original_filename=original_filename,
+        asset = await write_media_to_storage_and_flush(
+            db, owner_user_id=owner_user_id, media_type=MediaAssetType.FEEDBACK_ATTACHMENT,
+            content=sanitized.content, content_type=sanitized.content_type,
+            storage_provider=storage_provider, original_filename=original_filename,
         )
     except Exception:
         logger.exception("Failed to persist feedback attachment")
@@ -200,14 +207,8 @@ async def _validate_and_store_attachment(request: Request, file: UploadFile) -> 
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Couldn’t save your attachment right now.",
         ) from None
-
-    return FeedbackAttachmentReference(
-        filename=_sanitize_attachment_name(original_filename),
-        content_type=sanitized.content_type,
-        size_bytes=len(sanitized.content),
-        storage_key=stored_media.storage_key,
-        access_url=_build_feedback_attachment_access_url(request, stored_media.storage_key),
-    )
+    compensation.append(asset.storage_key)
+    return asset
 
 
 async def _parse_feedback_payload(request: Request) -> tuple[FeedbackReportRequest, UploadFile | None]:
@@ -244,12 +245,38 @@ async def _parse_feedback_payload(request: Request) -> tuple[FeedbackReportReque
 async def submit_feedback_report(
     request: Request,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> NeutralActionResponse:
     await enforce_rate_limits(request, _feedback_report_policies(request, current_user))
     payload, attachment_file = await _parse_feedback_payload(request)
-    attachment = None
-    if attachment_file is not None and attachment_file.filename:
-        attachment = await _validate_and_store_attachment(request, attachment_file)
+    has_attachment = attachment_file is not None and bool(attachment_file.filename)
+
+    async def _op(compensation: list[str]) -> tuple[FeedbackReport, FeedbackAttachmentReference | None]:
+        feedback_report = FeedbackReport(submitter_user_id=current_user.id)
+        db.add(feedback_report)
+        await db.flush()
+
+        attachment_ref = None
+        if has_attachment:
+            asset = await _validate_and_store_attachment(
+                db, request, attachment_file, owner_user_id=current_user.id, compensation=compensation,
+            )
+            await attach_pending_media(
+                db, storage_key=asset.storage_key, owner_user_id=current_user.id,
+                attached_to_type="feedback_report", attached_to_id=feedback_report.id,
+            )
+            attachment_ref = FeedbackAttachmentReference(
+                filename=_sanitize_attachment_name((attachment_file.filename or "").strip()),
+                content_type=asset.content_type,
+                size_bytes=asset.file_size_bytes,
+                storage_key=asset.storage_key,
+                access_url=_build_feedback_attachment_access_url(request, asset.storage_key),
+            )
+        return feedback_report, attachment_ref
+
+    _feedback_report, attachment = await run_media_operation(
+        db, _op, storage_provider=_get_feedback_storage_provider(),
+    )
 
     submitted_at = datetime.now(timezone.utc).isoformat()
     message = build_feedback_report_message(

@@ -19,5 +19,8 @@ from app.models.dm import DirectMessage
 from app.models.moderation_signal import ModerationSignal
 from app.models.staff_permission import StaffPermission
 from app.models.waitlist_application import WaitlistApplication
+from app.models.media_asset import MediaAsset, MediaAssetStatus, MediaAssetType
+from app.models.feedback_report import FeedbackReport
+from app.models.user_media_quota import UserMediaQuota
 
-__all__ = ["User", "InviteCampaign", "InviteCode", "InviteUsage", "Post", "Like", "Follow", "Block", "Bookmark", "RefreshToken", "EmailChangeToken", "EmailVerificationToken", "PasswordResetToken", "AdminAuditLog", "Notification", "NotificationSettings", "PushSubscription", "DirectMessage", "ModerationSignal", "StaffPermission", "WaitlistApplication"]
+__all__ = ["User", "InviteCampaign", "InviteCode", "InviteUsage", "Post", "Like", "Follow", "Block", "Bookmark", "RefreshToken", "EmailChangeToken", "EmailVerificationToken", "PasswordResetToken", "AdminAuditLog", "Notification", "NotificationSettings", "PushSubscription", "DirectMessage", "ModerationSignal", "StaffPermission", "WaitlistApplication", "MediaAsset", "MediaAssetStatus", "MediaAssetType", "FeedbackReport", "UserMediaQuota"]

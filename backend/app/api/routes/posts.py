@@ -27,7 +27,9 @@ from app.schemas.post import (
 )
 from app.api.deps import get_current_interactive_user, get_current_user, get_optional_user
 from app.core.upload_limits import reject_by_content_length_hint, read_upload_within_limit
+from app.models.media_asset import MediaAssetType
 from app.services.image_processing import sanitize_public_image
+from app.services.media_assets import attach_pending_media, run_media_operation, write_media_to_storage_and_flush
 from app.storage import get_storage_provider
 from app.services.blocks import get_block_relationship, get_blocked_user_ids, raise_blocked_interaction_error
 from app.services.discovery import TRENDING_WINDOW_HOURS, build_discovery_feed, build_trending_feed
@@ -446,29 +448,34 @@ async def upload_image(
         await db.commit()
         raise_review_required_error(assessment.surface_type)
 
-    storage_provider = get_storage_provider()
-
     # Decode + re-encode (strips EXIF/PNG-chunk metadata, rejects animated/unsupported
     # formats via Pillow's own post-decode detection) — never store the raw upload.
     sanitized = sanitize_public_image(content, detected_content_type=assessment.canonical_content_type)
 
     # Save file only after moderation passes so review-required uploads never become public.
-    try:
-        stored_media = await storage_provider.save_file(
-            content=sanitized.content,
-            content_type=sanitized.content_type,
+    # Stays PENDING here — create_post() attaches it (in a SEPARATE request/transaction;
+    # a user may upload an image well before actually submitting the post, or never).
+    async def _op(compensation: list[str]) -> dict:
+        asset = await write_media_to_storage_and_flush(
+            db, owner_user_id=current_user.id, media_type=MediaAssetType.POST_IMAGE,
+            content=sanitized.content, content_type=sanitized.content_type,
             original_filename=file.filename,
         )
+        compensation.append(asset.storage_key)
+        public_url = get_storage_provider().get_public_url(asset.storage_key)
+        assessment.media_url = public_url
+        signal.media_url = public_url
+        return {"url": public_url}
+
+    try:
+        return await run_media_operation(db, _op)
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to save uploaded file"
         )
-
-    assessment.media_url = stored_media.public_url
-    signal.media_url = stored_media.public_url
-    await db.commit()
-    return {"url": stored_media.public_url}
 
 @router.post("", response_model=PostRead, status_code=status.HTTP_201_CREATED)
 async def create_post(
@@ -609,6 +616,18 @@ async def create_post(
     
     db.add(new_post)
     await db.flush()
+
+    if media_url and _is_allowed_local_media_url(media_url):
+        # A local upload (from upload_image, a SEPARATE prior request) must always
+        # resolve to a tracked, owned, PENDING MediaAsset — no untracked-media bypass
+        # for newly-created content. An external (non-local) media_url is a different,
+        # untracked feature and is deliberately left alone here.
+        storage_key = media_url.rstrip("/").rsplit("/", 1)[-1]
+        await attach_pending_media(
+            db, storage_key=storage_key, owner_user_id=current_user.id,
+            attached_to_type="post", attached_to_id=new_post.id,
+        )
+
     if text_signal.post_id is None:
         text_signal.post_id = new_post.id
     if media_signal and media_signal.post_id is None:
