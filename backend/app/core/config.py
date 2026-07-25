@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 import re
 from typing import Any, Literal, Optional
@@ -10,7 +11,7 @@ from pydantic_settings.sources import DotEnvSettingsSource, EnvSettingsSource
 _config_logger = logging.getLogger(__name__)
 
 
-CSV_ENV_FIELDS = {"CORS_ALLOWED_ORIGINS", "ALLOWED_HOSTS", "TRUSTED_PROXY_CIDRS"}
+CSV_ENV_FIELDS = {"CORS_ALLOWED_ORIGINS", "ALLOWED_HOSTS", "TRUSTED_PROXY_CIDRS", "REDIS_PLAINTEXT_ALLOWED_HOSTS"}
 KNOWN_WEAK_SECRET_MARKERS = (
     "changeme",
     "change-in-production",
@@ -112,6 +113,15 @@ class Settings(BaseSettings):
     ALLOWED_HOSTS: list[str] = []
     TRUSTED_PROXY_CIDRS: list[str] = []
     TRUST_PROXY_HEADERS: bool = False
+    # Explicit opt-in to allow unencrypted redis:// in production. Only set this if
+    # REDIS_URL points at a private Docker/VPC network with no public exposure and no
+    # TLS termination available — otherwise use rediss://.
+    REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK: bool = False
+    # Non-IP hostnames (e.g. a Docker Compose service name like "redis") that are
+    # trusted to receive plaintext Redis traffic when REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK
+    # is set. IP-literal hosts are checked directly against private/loopback ranges instead
+    # and don't need to be listed here.
+    REDIS_PLAINTEXT_ALLOWED_HOSTS: list[str] = []
     UPLOADS_CACHE_CONTROL: str = "public, max-age=3600"
     
     # WebAuthn / FIDO2
@@ -193,7 +203,7 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
-    @field_validator("ALLOWED_HOSTS", "TRUSTED_PROXY_CIDRS", mode="before")
+    @field_validator("ALLOWED_HOSTS", "TRUSTED_PROXY_CIDRS", "REDIS_PLAINTEXT_ALLOWED_HOSTS", mode="before")
     @classmethod
     def normalize_csv_list(cls, value: object) -> object:
         if value in (None, ""):
@@ -387,12 +397,47 @@ class Settings(BaseSettings):
             ):
                 raise ValueError("WEB_BASE_URL must be an https production URL when using a real mail provider")
 
-        if (
-            self.REDIS_URL.startswith("redis://")
-            and not re.search(r":([^@]+)@", self.REDIS_URL)
-        ):
+        redis_has_credentials = bool(re.search(r":([^@]+)@", self.REDIS_URL))
+
+        if self.REDIS_URL.startswith("redis://"):
+            if not self.REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK:
+                raise ValueError(
+                    "Redis must use TLS in production. Set REDIS_URL to "
+                    "rediss://:password@host:port/db. If REDIS_URL points at a private "
+                    "Docker/VPC network with no TLS termination, set "
+                    "REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK=true to explicitly accept "
+                    "unencrypted Redis traffic within that network."
+                )
+
+            redis_host = urlparse(self.REDIS_URL).hostname or ""
+            is_private_host = False
+            try:
+                parsed_ip = ipaddress.ip_address(redis_host)
+                is_private_host = parsed_ip.is_private or parsed_ip.is_loopback
+            except ValueError:
+                # Not an IP literal (e.g. a Docker Compose service hostname) — these
+                # can't be range-checked, so they must be explicitly allowlisted instead
+                # of trusted just because REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK is set.
+                is_private_host = redis_host in self.REDIS_PLAINTEXT_ALLOWED_HOSTS
+
+            if not is_private_host:
+                raise ValueError(
+                    f"REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK is set, but REDIS_URL's host "
+                    f"'{redis_host}' is not a private/loopback IP and is not listed in "
+                    f"REDIS_PLAINTEXT_ALLOWED_HOSTS. REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK "
+                    f"does not, by itself, accept any remote host — add '{redis_host}' to "
+                    f"REDIS_PLAINTEXT_ALLOWED_HOSTS only if it's a trusted Docker/VPC-"
+                    f"internal hostname, or use rediss:// for a public host."
+                )
+
+            if not redis_has_credentials:
+                raise ValueError(
+                    "Redis must use authentication in production, even on a private "
+                    "network. Set REDIS_URL to redis://:password@host:port/db"
+                )
+        elif self.REDIS_URL.startswith("rediss://") and not redis_has_credentials:
             raise ValueError(
-                "Redis must use authentication and TLS in production. "
+                "Redis must use authentication in production. "
                 "Set REDIS_URL to rediss://:password@host:port/db"
             )
 
