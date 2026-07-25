@@ -178,6 +178,120 @@ class HostValidationMiddleware:
         await response(scope, receive, send)
 
 
+class RequestBodySizeLimitMiddleware:
+    """ASGI-level streaming body-size guard. This is the actual enforcement
+    point for upload size limits — Starlette's multipart parser has no
+    file-part size cap of its own, so a route-level read-limit helper alone
+    would run after the entire body has already been parsed (and, past
+    spool_max_size, spooled to disk).
+
+    Correction (discovered via this task's own real-server verification,
+    not assumed): the original design raised a custom exception from inside
+    guarded_receive() and relied on it unwinding cleanly back up to this
+    middleware's own try/except. That is fragile in practice — FastAPI's own
+    body-parsing code (fastapi.routing's request_body_to_args) wraps
+    `await request.form()` in a broad `except Exception` that converts
+    anything else into a generic `HTTPException(400, "There was an error
+    parsing the body")`, silently swallowing a plain Exception before it
+    ever reaches this middleware. Making the exception an HTTPException
+    subclass so FastAPI's own `except HTTPException: raise` preserves it
+    was tried and STILL failed once real middleware layers (CORS, the
+    security-headers BaseHTTPMiddleware, etc.) sat between this guard and
+    Starlette's ExceptionMiddleware — empirically, exception-based unwinding
+    through that stack is not reliable, only reproducible in a bare
+    two-middleware toy setup.
+
+    The robust fix does not rely on exception propagation at all: once the
+    streamed total exceeds the limit, this middleware sends the 413 response
+    itself, directly, through the real `send` it was given — bypassing
+    whatever the downstream app (FastAPI, mid-dependency-resolution) is
+    doing entirely — then tells the downstream the client disconnected
+    (`http.disconnect`, the standard ASGI signal for "stop, nothing more is
+    coming") so it unwinds on its own without needing a special exception
+    type to survive. `guarded_send` independently guarantees no double
+    response: once the guard has fired, every further message the
+    downstream still tries to emit (its own error response, a stray
+    success response race, anything) is silently discarded rather than
+    forwarded to the real client."""
+
+    def __init__(self, app, *, path_limits: dict[str, int]) -> None:
+        self.app = app
+        self.path_limits = path_limits
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope["path"].rstrip("/") or "/"
+        limit = self.path_limits.get(path)
+        if limit is None:
+            await self.app(scope, receive, send)
+            return
+
+        declared = _parse_content_length(MutableHeaders(scope=scope).get("content-length"))
+        if declared is not None and declared > limit:
+            await _send_413(send)
+            return
+
+        total = 0
+        guard_tripped = False
+        downstream_response_started = False
+
+        async def guarded_receive():
+            nonlocal total, guard_tripped
+            if guard_tripped:
+                # Already handled (413 already sent) — tell the downstream
+                # nothing more is coming, rather than pulling more bytes off
+                # a connection we're done with.
+                return {"type": "http.disconnect"}
+            message = await receive()
+            if message["type"] == "http.request":
+                total += len(message.get("body", b""))
+                if total > limit:
+                    guard_tripped = True
+                    if not downstream_response_started:
+                        await _send_413(send)
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def guarded_send(message):
+            nonlocal downstream_response_started
+            if guard_tripped:
+                # We've already fully responded (or deliberately chosen not
+                # to, because the downstream beat us to it) — never forward
+                # anything further to the real client.
+                return
+            if message["type"] == "http.response.start":
+                downstream_response_started = True
+            await send(message)
+
+        await self.app(scope, guarded_receive, guarded_send)
+
+
+async def _send_413(send) -> None:
+    body = b'{"detail":"Uploaded file is too large."}'
+    await send({
+        "type": "http.response.start",
+        "status": 413,
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode()),
+            (b"connection", b"close"),
+        ],
+    })
+    await send({"type": "http.response.body", "body": body})
+
+
+def _parse_content_length(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 def is_no_store_path(path: str) -> bool:
     if path == "/health":
         return True

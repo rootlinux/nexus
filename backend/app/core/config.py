@@ -147,6 +147,14 @@ class Settings(BaseSettings):
     S3_ACCESS_KEY_ID: Optional[str] = None
     S3_SECRET_ACCESS_KEY: Optional[str] = None
 
+    # Upload limits (Round 2, Task 1)
+    AVATAR_UPLOAD_MAX_BYTES: int = 5 * 1024 * 1024
+    COVER_UPLOAD_MAX_BYTES: int = 8 * 1024 * 1024
+    POST_IMAGE_UPLOAD_MAX_BYTES: int = 5 * 1024 * 1024
+    UPLOAD_GUARD_OVERHEAD_BYTES: int = 256 * 1024
+    PNG_DECOMPRESS_SLACK_BYTES: int = 4 * 1024
+    PNG_MAX_COMPRESSED_INPUT_BYTES: int = 8 * 1024 * 1024
+
     # Mail
     MAIL_PROVIDER: str = "capture"
     MAIL_CAPTURE_DIR: str = "tmp/mail"

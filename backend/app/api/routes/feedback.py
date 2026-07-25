@@ -14,6 +14,7 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 from app.api.deps import get_current_user, require_admin_session
 from app.core.rate_limit import RATE_LIMIT_ERROR, RateLimitPolicy, build_scope_key, enforce_rate_limits, get_client_ip, hash_key_part
 from app.core.config import settings
+from app.core.upload_limits import reject_by_content_length_hint, read_upload_within_limit
 from app.models.user import User
 from app.schemas.auth import NeutralActionResponse
 from app.schemas.feedback import FeedbackAttachmentReference, FeedbackReportRequest
@@ -142,18 +143,11 @@ def _verify_feedback_attachment_access(storage_key: str, *, expires: int, sig: s
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid attachment signature")
 
 
-async def _read_attachment(file: UploadFile) -> bytes:
-    try:
-        return await file.read()
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to read the attachment.",
-        ) from exc
-
-
 async def _validate_and_store_attachment(request: Request, file: UploadFile) -> FeedbackAttachmentReference:
-    content = await _read_attachment(file)
+    reject_by_content_length_hint(
+        request, limit=settings.FEEDBACK_ATTACHMENT_MAX_BYTES + settings.UPLOAD_GUARD_OVERHEAD_BYTES
+    )
+    content = await read_upload_within_limit(file, limit=settings.FEEDBACK_ATTACHMENT_MAX_BYTES)
     detected_type = inspect_media_bytes(content).detected_content_type
     normalized_type = (file.content_type or "").strip().lower()
     original_filename = (file.filename or "").strip()
@@ -169,8 +163,9 @@ async def _validate_and_store_attachment(request: Request, file: UploadFile) -> 
     elif detected_type not in ALLOWED_FEEDBACK_ATTACHMENT_TYPES:
         reason_codes.add("unsupported_detected_file_type")
 
-    if len(content) > settings.FEEDBACK_ATTACHMENT_MAX_BYTES:
-        reason_codes.add("file_too_large")
+    # Oversize is now rejected as 413 by read_upload_within_limit above, before this
+    # function's body ever runs — no "file_too_large" reason code is reachable here
+    # anymore (Round 2, Task 1).
 
     if normalized_type and detected_type and normalized_type != detected_type:
         reason_codes.add("mime_mismatch")
