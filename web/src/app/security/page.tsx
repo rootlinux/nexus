@@ -227,7 +227,7 @@ export default function SecurityPage() {
           <div>
             <h2 style={{ margin: 0, color: tokens.colors.textPrimary, fontSize: '18px' }}>Security keys</h2>
             <p style={{ margin: '6px 0 0', color: tokens.colors.textSecondary, fontSize: '13px', lineHeight: 1.5 }}>
-              Add a passkey or hardware security key to strengthen your admin account. Once registered, you'll be prompted for it after entering your password.
+              Add a passkey or hardware security key to strengthen your admin account. Once registered, you&apos;ll be prompted for it after entering your password.
             </p>
           </div>
           <WebAuthnSetup />
