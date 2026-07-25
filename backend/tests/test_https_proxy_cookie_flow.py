@@ -33,6 +33,7 @@ from app.core.database import get_db
 from app.core.security import get_password_hash
 from app.main import app
 from app.models.refresh_token import RefreshToken
+from app.models.refresh_token_family import RefreshTokenFamily
 from app.models.user import User, UserStatus
 from app.models.webauthn_credential import WebAuthnCredential
 
@@ -107,6 +108,9 @@ class _ScalarResult:
             raise AssertionError("Expected a value")
         return self._value
 
+    def scalar(self):
+        return self._value
+
 
 class _FakeDBSession:
     def __init__(self) -> None:
@@ -134,18 +138,31 @@ class _FakeDBSession:
                 return _ScalarResult(self.user)
             return _ScalarResult(None)
 
+        if entity is RefreshTokenFamily:
+            # lock_token_family's result is never read by the caller — this
+            # synchronous, single-threaded fake has no real concurrency to
+            # serialize against, so a harmless dummy is sufficient.
+            return _ScalarResult(None)
+
         if entity is RefreshToken:
             token_id = next((value for key, value in params.items() if key == "id_1"), None)
             token_hash = next((value for key, value in params.items() if "token_hash" in key), None)
             if token_id is not None:
                 token = next((item for item in self._refresh_tokens_by_hash.values() if item.id == int(token_id)), None)
                 return _ScalarResult(token)
-            return _ScalarResult(self._refresh_tokens_by_hash.get(token_hash))
+            token = self._refresh_tokens_by_hash.get(token_hash)
+            if str(statement).startswith("SELECT refresh_tokens.token_family_id "):
+                return _ScalarResult(token.token_family_id if token else None)
+            return _ScalarResult(token)
 
         if entity is WebAuthnCredential:
             return _ScalarResult(None)
 
         raise AssertionError(f"Unexpected statement entity: {entity}")
+
+    async def scalar(self, statement):
+        result = await self.execute(statement)
+        return result.scalar()
 
     def add(self, instance):
         if isinstance(instance, RefreshToken):

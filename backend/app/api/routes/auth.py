@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import hmac
 import re as _re
+from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,7 +36,9 @@ from app.models.invite import InviteCode
 from app.models.invite_campaign import InviteCampaign
 from app.models.invite_usage import InviteUsage
 from app.models.refresh_token import RefreshToken
+from app.models.refresh_token_family import RefreshTokenFamily
 from app.models.webauthn_credential import WebAuthnCredential
+from app.services.refresh_token_replay import lock_token_family, revoke_token_family
 from app.services.account_security import (
     consume_email_change_token,
     consume_email_verification_token,
@@ -192,6 +195,8 @@ async def _save_refresh_token(
     refresh_token: str,
     *,
     mfa_satisfied: bool,
+    token_family_id: str,
+    parent_token_id: int | None = None,
     device_fingerprint: str | None = None,
     device_label: str | None = None,
 ) -> RefreshToken:
@@ -207,6 +212,8 @@ async def _save_refresh_token(
         last_used_at=datetime.now(timezone.utc),
         device_label=device_label,
         device_fingerprint=device_fingerprint,
+        token_family_id=token_family_id,
+        parent_token_id=parent_token_id,
     )
     db.add(db_token)
     await db.flush()
@@ -219,13 +226,28 @@ async def _issue_session_tokens(
     user: User,
     request: Request,
     mfa_satisfied: bool,
+    token_family_id: str | None = None,
+    parent_token_id: int | None = None,
 ) -> tuple[Token, RefreshToken]:
+    """A fresh login (token_family_id=None) starts a brand-new family and
+    must create its RefreshTokenFamily anchor row before the first
+    RefreshToken of that family exists — lock_token_family has nothing to
+    lock otherwise. A refresh (token_family_id supplied by the caller,
+    already locked via lock_token_family before this is called) reuses the
+    existing family's anchor and never creates a new one."""
+    is_fresh_login = token_family_id is None
+    if is_fresh_login:
+        token_family_id = str(uuid4())
+        db.add(RefreshTokenFamily(token_family_id=token_family_id))
+
     refresh_token = create_refresh_token()
     refresh_record = await _save_refresh_token(
         db,
         user.id,
         refresh_token,
         mfa_satisfied=mfa_satisfied,
+        token_family_id=token_family_id,
+        parent_token_id=parent_token_id,
         device_fingerprint=_get_device_fingerprint(request),
         device_label=describe_client_device(request),
     )
@@ -1067,29 +1089,33 @@ async def refresh_token(
     raw_refresh_token = _get_refresh_token_from_request(request, token_request.refresh_token)
     await enforce_rate_limits(request, _refresh_limit_policies(request, raw_refresh_token))
     token_hash = hash_refresh_token(raw_refresh_token)
-    
-    result = await db.execute(
-        select(RefreshToken).where(
-            RefreshToken.token_hash == token_hash
+
+    # Unlocked lookup, only to discover which family this token belongs to —
+    # its revoked/replaced_by_token_id fields are NOT trusted yet at this
+    # point (see the FOR UPDATE re-fetch right below).
+    family_id = await db.scalar(
+        select(RefreshToken.token_family_id).where(RefreshToken.token_hash == token_hash)
+    )
+    if family_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Lock the family — the single serialization point every rotation AND
+    # every family-wide replay revocation goes through. Whichever
+    # transaction acquires this first (an ancestor-token replay detection,
+    # or this descendant-token rotation) fully completes before the other
+    # proceeds and re-reads fresh, post-commit state.
+    await lock_token_family(db, token_family_id=family_id)
+
+    result = await db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == token_hash).with_for_update()
     )
     db_token = result.scalar_one_or_none()
-    
+
     if not db_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if db_token.revoked:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if db_token.expires_at < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
@@ -1109,6 +1135,55 @@ async def refresh_token(
             detail="Invalid refresh token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    if db_token.revoked:
+        # Both branches raise the identical 401 message so a client can't
+        # distinguish "whole family nuked" from "ordinary revoked-token
+        # reuse" from the response alone — the distinction only appears in
+        # the audit log.
+        if db_token.replaced_by_token_id is not None:
+            revoked_count = await revoke_token_family(
+                db, token_family_id=db_token.token_family_id, reason="refresh_replay"
+            )
+            db_token.reuse_detected_at = datetime.now(timezone.utc)
+            await write_audit_log(
+                db,
+                action="refresh.reuse_detected",
+                actor_user=user,
+                actor_type="user",
+                target_type="session",
+                target_id=db_token.id,
+                after={"token_family_id": db_token.token_family_id, "revoked_count": revoked_count},
+                request=request,
+                session_id=db_token.id,
+                success=False,
+            )
+        else:
+            await write_audit_log(
+                db,
+                action="refresh.revoked_token_reuse",
+                actor_user=user,
+                actor_type="user",
+                target_type="session",
+                target_id=db_token.id,
+                request=request,
+                session_id=db_token.id,
+                success=False,
+            )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session invalidated. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if db_token.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     enforce_not_banned(user)
     if user.email_verified_at is None:
         db_token.revoked = True
@@ -1133,38 +1208,40 @@ async def refresh_token(
             },
         )
 
-    # Device fingerprint check: revoke if the stable client-header fingerprint changes
+    # Device fingerprint check: a mismatch is a recorded risk signal only —
+    # it never forces reauth on its own in this round. The only hard trigger
+    # for forced reauth is replay detection above, independent of
+    # fingerprint. Rotation continues below regardless; the new token picks
+    # up the current fingerprint automatically via _issue_session_tokens, so
+    # future refreshes compare against the browser's current headers instead
+    # of tripping again on the same legitimate change.
     current_fingerprint = _get_device_fingerprint(request)
     if db_token.device_fingerprint and db_token.device_fingerprint != current_fingerprint:
-        db_token.revoked = True
         await write_audit_log(
             db,
-            action="refresh.device_mismatch",
+            action="refresh.fingerprint_changed",
             actor_user=user,
             target_type="session",
             target_id=db_token.id,
-            after={"reason": "device_mismatch"},
+            after={"reason": "fingerprint_changed"},
             request=request,
             session_id=db_token.id,
-            success=False,
-        )
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session invalidated. Please log in again.",
-            headers={"WWW-Authenticate": "Bearer"},
+            success=True,
         )
 
     # Revoke the old refresh token (rotation)
     db_token.revoked = True
     db_token.last_used_at = datetime.now(timezone.utc)
 
-    tokens, _ = await _issue_session_tokens(
+    tokens, new_record = await _issue_session_tokens(
         db,
         user=user,
         request=request,
         mfa_satisfied=db_token.mfa_satisfied,
+        token_family_id=db_token.token_family_id,
+        parent_token_id=db_token.id,
     )
+    db_token.replaced_by_token_id = new_record.id
 
     await db.commit()
 

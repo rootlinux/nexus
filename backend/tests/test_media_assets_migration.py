@@ -32,8 +32,13 @@ class MediaAssetsMigrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_upgrade_creates_all_three_tables_and_enums_downgrade_removes_them(self):
         engine = create_async_engine(settings.DATABASE_URL)
 
-        _run_alembic("downgrade", "-1")  # ensure clean slate relative to 039, idempotent if already there
-        _run_alembic("upgrade", "head")
+        # Explicit target revisions, not relative "-1"/"head" — this test
+        # checks 039's own tables in isolation and must stay correct
+        # regardless of how many later migrations (e.g. 040) get stacked on
+        # top; a relative "-1" only undoes whatever the CURRENT head happens
+        # to be, which silently stopped undoing 039 once 040 was added.
+        _run_alembic("downgrade", "038_admin_audit_service_context")
+        _run_alembic("upgrade", "039_media_assets_and_feedback_reports")
 
         async with engine.connect() as conn:
             table_names = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
@@ -45,7 +50,7 @@ class MediaAssetsMigrationTests(unittest.IsolatedAsyncioTestCase):
             )).all()
             self.assertEqual({row[0] for row in enum_rows}, {"mediaassettype", "mediaassetstatus"})
 
-        _run_alembic("downgrade", "-1")
+        _run_alembic("downgrade", "038_admin_audit_service_context")
 
         async with engine.connect() as conn:
             table_names = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
