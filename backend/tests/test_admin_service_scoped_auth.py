@@ -14,7 +14,6 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
 from app.models.post import Post
-from app.models.push_subscription import PushSubscription
 from app.models.user import User, UserStatus
 from app.services.push_notifications import PushSendResult
 
@@ -81,11 +80,13 @@ class AdminServiceScopedAuthTests(unittest.TestCase):
         app.dependency_overrides.clear()
         self._original_tokens = {
             "ADMIN_SERVICE_TOKEN": settings.ADMIN_SERVICE_TOKEN,
+            "ENABLE_LEGACY_ADMIN_SERVICE_TOKEN": settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN,
             "SERVICE_TOKEN_READ": settings.SERVICE_TOKEN_READ,
             "SERVICE_TOKEN_NOTIFY": settings.SERVICE_TOKEN_NOTIFY,
             "SERVICE_TOKEN_DELETE": settings.SERVICE_TOKEN_DELETE,
         }
         settings.ADMIN_SERVICE_TOKEN = ""
+        settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN = False
         settings.SERVICE_TOKEN_READ = "read-token"
         settings.SERVICE_TOKEN_NOTIFY = "notify-token"
         settings.SERVICE_TOKEN_DELETE = "delete-token"
@@ -120,8 +121,16 @@ class AdminServiceScopedAuthTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()), 1)
 
-    def test_read_endpoint_accepts_legacy_admin_token(self):
+    def test_read_endpoint_rejects_legacy_admin_token_when_not_explicitly_enabled(self):
         settings.ADMIN_SERVICE_TOKEN = "legacy-token"
+        settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN = False
+        client = self._client([[]])
+        response = client.get("/api/admin/service/users", headers={"X-Service-Token": "legacy-token"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_read_endpoint_accepts_legacy_admin_token_when_explicitly_enabled(self):
+        settings.ADMIN_SERVICE_TOKEN = "legacy-token"
+        settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN = True
         client = self._client([[build_user(1)]])
         response = client.get("/api/admin/service/users", headers={"X-Service-Token": "legacy-token"})
         self.assertEqual(response.status_code, 200)
@@ -130,6 +139,63 @@ class AdminServiceScopedAuthTests(unittest.TestCase):
         client = self._client([build_user(2)])
         response = client.delete("/api/admin/service/users/2", headers={"X-Service-Token": "read-token"})
         self.assertEqual(response.status_code, 403)
+
+    def test_delete_user_rejects_notify_scoped_token(self):
+        client = self._client([build_user(2)])
+        response = client.delete("/api/admin/service/users/2", headers={"X-Service-Token": "notify-token"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_notify_endpoint_rejects_read_scoped_token(self):
+        client = self._client([])
+        response = client.post(
+            "/api/admin/service/notifications/push",
+            headers={"X-Service-Token": "read-token"},
+            json={"user_id": "3", "title": "Hi", "body": "There"},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_no_scoped_or_legacy_tokens_configured_leaves_service_endpoints_fail_closed(self):
+        # No token configured for any scope at all: the app must still start and serve
+        # requests normally — admin_service.* endpoints just always reject, rather than
+        # the process refusing to boot (a hard startup requirement here would force every
+        # deployment to configure a service token even if it never uses the integration).
+        settings.SERVICE_TOKEN_READ = ""
+        settings.SERVICE_TOKEN_NOTIFY = ""
+        settings.SERVICE_TOKEN_DELETE = ""
+        settings.ADMIN_SERVICE_TOKEN = ""
+
+        client = self._client([[]])
+        self.assertEqual(
+            client.get("/api/admin/service/users", headers={"X-Service-Token": "anything"}).status_code,
+            403,
+        )
+        self.assertEqual(
+            client.delete("/api/admin/service/users/1", headers={"X-Service-Token": "anything"}).status_code,
+            403,
+        )
+        self.assertEqual(
+            client.post(
+                "/api/admin/service/notifications/push",
+                headers={"X-Service-Token": "anything"},
+                json={"user_id": "1", "title": "Hi", "body": "There"},
+            ).status_code,
+            403,
+        )
+
+        # Public, unauthenticated endpoints are untouched by service-token configuration.
+        self.assertEqual(client.get("/").status_code, 200)
+        self.assertEqual(client.get("/health").status_code, 200)
+
+    def test_failed_authorization_is_logged_without_leaking_the_token(self):
+        client = self._client([[]])
+        with self.assertLogs("app.api.dependencies.service_auth", level="WARNING") as log_ctx:
+            response = client.get(
+                "/api/admin/service/users", headers={"X-Service-Token": "not-a-real-token"}
+            )
+        self.assertEqual(response.status_code, 403)
+        log_output = "\n".join(log_ctx.output)
+        self.assertIn("scope=service:read", log_output)
+        self.assertNotIn("not-a-real-token", log_output)
 
     def test_delete_user_writes_audit_log_with_service_principal_and_no_raw_token(self):
         client = self._client([build_user(2)])

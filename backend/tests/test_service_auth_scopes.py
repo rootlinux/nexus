@@ -17,11 +17,13 @@ class ServiceAuthScopeTests(unittest.TestCase):
     def setUp(self):
         self._original = {
             "ADMIN_SERVICE_TOKEN": settings.ADMIN_SERVICE_TOKEN,
+            "ENABLE_LEGACY_ADMIN_SERVICE_TOKEN": settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN,
             "SERVICE_TOKEN_READ": settings.SERVICE_TOKEN_READ,
             "SERVICE_TOKEN_NOTIFY": settings.SERVICE_TOKEN_NOTIFY,
             "SERVICE_TOKEN_DELETE": settings.SERVICE_TOKEN_DELETE,
         }
         settings.ADMIN_SERVICE_TOKEN = ""
+        settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN = False
         settings.SERVICE_TOKEN_READ = ""
         settings.SERVICE_TOKEN_NOTIFY = ""
         settings.SERVICE_TOKEN_DELETE = ""
@@ -64,16 +66,29 @@ class ServiceAuthScopeTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             self._call(dependency, "wrong-token")
 
-    def test_legacy_admin_token_grants_all_three_scopes(self):
+    def test_legacy_admin_token_inactive_by_default_even_when_set(self):
+        # Having ADMIN_SERVICE_TOKEN set must not, by itself, grant access — the explicit
+        # opt-in flag is what activates it. This is the whole point of the flag: no
+        # silent full-access fallback just because a legacy token happens to be present.
         settings.ADMIN_SERVICE_TOKEN = "legacy-token"
+        settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN = False
+        dependency = service_auth.require_service_scope(service_auth.SCOPE_READ)
+        with self.assertRaises(HTTPException) as ctx:
+            self._call(dependency, "legacy-token")
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_legacy_admin_token_grants_all_three_scopes_when_explicitly_enabled(self):
+        settings.ADMIN_SERVICE_TOKEN = "legacy-token"
+        settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN = True
         for scope in (service_auth.SCOPE_READ, service_auth.SCOPE_NOTIFY, service_auth.SCOPE_DELETE):
             dependency = service_auth.require_service_scope(scope)
             context = self._call(dependency, "legacy-token")
             self.assertEqual(context.principal_id, "legacy-admin-service")
             self.assertIn(scope, context.scopes)
 
-    def test_scoped_and_legacy_tokens_can_coexist(self):
+    def test_scoped_and_legacy_tokens_can_coexist_when_legacy_is_enabled(self):
         settings.ADMIN_SERVICE_TOKEN = "legacy-token"
+        settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN = True
         settings.SERVICE_TOKEN_DELETE = "delete-token"
         dependency = service_auth.require_service_scope(service_auth.SCOPE_DELETE)
 
