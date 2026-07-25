@@ -50,6 +50,14 @@ jobs:
         # lint backlog with no code change involved. Bump this deliberately, in its own
         # commit, when actually adopting a newer ruff's rule set.
         run: cd backend && pip install ruff==0.15.16 && ruff check app/
+      - name: Run database migrations
+        # Most tests override the DB dependency with an in-process fake and never touch
+        # Postgres, but a handful (test_push_notifications.py, test_release_blockers.py)
+        # import app.main and hit this service DB directly via AsyncSessionLocal — they
+        # need the schema to already exist. Nothing else in this job creates it.
+        run: cd backend && alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/xplatform_test
       - name: Run tests
         run: cd backend && python -m pytest tests/ -x -q
         env:
