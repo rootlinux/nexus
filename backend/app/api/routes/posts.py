@@ -1,3 +1,4 @@
+import asyncio
 import ipaddress
 import socket
 from typing import Literal, Optional
@@ -450,7 +451,9 @@ async def upload_image(
 
     # Decode + re-encode (strips EXIF/PNG-chunk metadata, rejects animated/unsupported
     # formats via Pillow's own post-decode detection) — never store the raw upload.
-    sanitized = sanitize_public_image(content, detected_content_type=assessment.canonical_content_type)
+    sanitized = await asyncio.to_thread(
+        sanitize_public_image, content, detected_content_type=assessment.canonical_content_type
+    )
 
     # Save file only after moderation passes so review-required uploads never become public.
     # Stays PENDING here — create_post() attaches it (in a SEPARATE request/transaction;
