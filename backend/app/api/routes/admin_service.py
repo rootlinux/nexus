@@ -1,13 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies.service_auth import require_service_token
+from app.api.dependencies.service_auth import (
+    SCOPE_DELETE,
+    SCOPE_NOTIFY,
+    SCOPE_READ,
+    ServiceAuthContext,
+    require_service_scope,
+)
 from app.core.database import get_db
 from app.models.post import Post
 from app.models.push_subscription import PushSubscription
 from app.models.user import User
+from app.services.audit import write_audit_log
 from app.services.push_notifications import send_push_payload_to_user, web_push_is_configured
 
 router = APIRouter(prefix="/admin/service", tags=["admin-service"])
@@ -30,7 +37,7 @@ async def list_users(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_service_token),
+    _auth: ServiceAuthContext = Depends(require_service_scope(SCOPE_READ)),
 ):
     result = await db.execute(
         select(User)
@@ -56,7 +63,7 @@ async def list_users(
 async def get_user(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_service_token),
+    _auth: ServiceAuthContext = Depends(require_service_scope(SCOPE_READ)),
 ):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -75,14 +82,25 @@ async def get_user(
 @router.delete("/users/{user_id}")
 async def delete_user(
     user_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_service_token),
+    auth: ServiceAuthContext = Depends(require_service_scope(SCOPE_DELETE)),
 ):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     await db.delete(user)
+    await write_audit_log(
+        db,
+        action="admin_service.delete_user",
+        actor_type="service",
+        service_principal_id=auth.principal_id,
+        auth_scopes=sorted(auth.scopes),
+        target_type="user",
+        target_id=user_id,
+        request=request,
+    )
     await db.commit()
     return {"message": "User deleted", "user_id": user_id}
 
@@ -93,7 +111,7 @@ async def list_posts(
     offset: int = Query(0, ge=0),
     user_id: int = Query(None, description="Filter by author user ID"),
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_service_token),
+    _auth: ServiceAuthContext = Depends(require_service_scope(SCOPE_READ)),
 ):
     query = select(Post).order_by(Post.created_at.desc()).offset(offset).limit(limit)
     if user_id is not None:
@@ -115,14 +133,25 @@ async def list_posts(
 @router.delete("/posts/{post_id}")
 async def delete_post(
     post_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_service_token),
+    auth: ServiceAuthContext = Depends(require_service_scope(SCOPE_DELETE)),
 ):
     result = await db.execute(select(Post).where(Post.id == post_id))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     await db.delete(post)
+    await write_audit_log(
+        db,
+        action="admin_service.delete_post",
+        actor_type="service",
+        service_principal_id=auth.principal_id,
+        auth_scopes=sorted(auth.scopes),
+        target_type="post",
+        target_id=post_id,
+        request=request,
+    )
     await db.commit()
     return {"message": "Post deleted", "post_id": post_id}
 
@@ -130,8 +159,9 @@ async def delete_post(
 @router.post("/notifications/push", response_model=PushNotificationResponse)
 async def send_push_notification(
     payload: PushNotificationRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_service_token),
+    auth: ServiceAuthContext = Depends(require_service_scope(SCOPE_NOTIFY)),
 ):
     if not web_push_is_configured():
         raise HTTPException(
@@ -171,6 +201,21 @@ async def send_push_notification(
             "badge": "/icon-192.png",
         },
     )
+    await write_audit_log(
+        db,
+        action="admin_service.send_push_notification",
+        actor_type="service",
+        service_principal_id=auth.principal_id,
+        auth_scopes=sorted(auth.scopes),
+        target_type="user",
+        target_id=target_user_id,
+        after={
+            "title": payload.title,
+            "sent_count": result.sent_count,
+            "failed_count": result.failed_count,
+        },
+        request=request,
+    )
     await db.commit()
 
     return PushNotificationResponse(
@@ -183,7 +228,7 @@ async def send_push_notification(
 @router.get("/stats")
 async def get_stats(
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_service_token),
+    _auth: ServiceAuthContext = Depends(require_service_scope(SCOPE_READ)),
 ):
     user_count_result = await db.execute(select(func.count(User.id)))
     user_count = int(user_count_result.scalar() or 0)
