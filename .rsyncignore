@@ -15,7 +15,6 @@ __pycache__/
 tmp/
 backend/tmp/
 test-results/
-testsprite_tests/
 archive/
 stitch.zip
 backend/.env

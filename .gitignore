@@ -48,8 +48,6 @@ yarn-error.log*
 archive/
 .smoke/
 artifacts/
-testsprite_tests/tmp/
-web/testsprite_tests/
 tmp/mail/
 backend/tmp/
 backend/uploads/
@@ -63,9 +61,6 @@ mobile/
 web/.git/
 *.swp
 *.swo
-
-# Local runtime data
-ruvector.db
 
 # Personal local files
 LOCAL_DEV_ACCOUNTS.md
@@ -81,14 +76,6 @@ X/
 
 # VPS deploy copy — synced via rsync, not git
 deploy/x-backend/
-
-# AI assistant tooling (local only, never ship)
-.claude/
-.claude-flow/
-.codex/
-.cursor/
-.windsurf/
-.mcp.json
 
 # OS
 .DS_Store
