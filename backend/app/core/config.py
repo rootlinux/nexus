@@ -160,6 +160,14 @@ class Settings(BaseSettings):
     IMAGE_REENCODE_JPEG_QUALITY: int = 91
     IMAGE_REENCODE_WEBP_QUALITY: int = 90
 
+    # Media ownership/quota (Round 2, Task 3). Lifetime limits (files/bytes) are
+    # tracked only, not enforced — see reserve_upload_quota's docstring for why.
+    # Initial operational proposals, not measured against real usage.
+    MEDIA_MAX_FILES_PER_USER: int = 500
+    MEDIA_MAX_TOTAL_BYTES_PER_USER: int = 250 * 1024 * 1024
+    MEDIA_MAX_DAILY_UPLOAD_BYTES_PER_USER: int = 50 * 1024 * 1024  # enforced
+    MEDIA_PENDING_EXPIRATION_HOURS: int = 24
+
     # Mail
     MAIL_PROVIDER: str = "capture"
     MAIL_CAPTURE_DIR: str = "tmp/mail"

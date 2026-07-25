@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import secrets
@@ -14,6 +15,8 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from redis.exceptions import RedisError
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.pool import NullPool
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/xdb")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
@@ -22,7 +25,9 @@ os.environ.setdefault("SECRET_KEY", secrets.token_hex(32))
 from app.main import app
 from app.api import deps
 from app.core.config import settings
+from app.core.database import get_db
 from app.core.rate_limit import _memory_rate_limiter
+from tests.media_test_support import create_test_user
 
 SAMPLE_PNG = b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+c/aAAAAAASUVORK5CYII=")
 
@@ -46,6 +51,26 @@ class FeedbackReportApiTests(unittest.TestCase):
         self._feedback_attachment_temp_dir = tempfile.mkdtemp(prefix="feedback-attachments-test-")
         settings.FEEDBACK_ATTACHMENT_LOCAL_DIR = self._feedback_attachment_temp_dir
 
+        # Round 2 Task 3: submit_feedback_report now writes real FeedbackReport/
+        # MediaAsset/UserMediaQuota rows (submitter_user_id/owner_user_id are real
+        # FKs to users.id), so this needs a genuine DB-backed user and its own
+        # dedicated engine/session — never the app's shared global get_db engine,
+        # which collides across event loops with other test files sharing this
+        # pytest process ("attached to a different loop", confirmed via a real
+        # failure during Task 3's own full-suite verification run).
+        # This engine is used ONLY by override_db(), inside whatever loop
+        # TestClient's own requests actually run on. NullPool is required:
+        # TestClient does not guarantee one persistent event loop across
+        # separate .post()/.get() calls on the same instance (confirmed via
+        # a real "Event loop is closed" failure on a test making 4 sequential
+        # requests) — pooling a connection risks handing a later request a
+        # connection bound to an already-closed prior loop. NullPool opens a
+        # fresh physical connection per checkout and discards it afterward,
+        # which is safe regardless of which loop is live for a given request.
+        self.engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
+        self.test_user_id = asyncio.run(self._create_test_user_via_temp_engine())
+
     def tearDown(self):
         app.dependency_overrides.clear()
         _memory_rate_limiter._fixed_counters.clear()
@@ -55,18 +80,42 @@ class FeedbackReportApiTests(unittest.TestCase):
         settings.MAIL_CAPTURE_DIR = self._original_mail_capture_dir
         settings.FEEDBACK_ATTACHMENT_LOCAL_DIR = self._original_feedback_attachment_dir
         shutil.rmtree(self._feedback_attachment_temp_dir, ignore_errors=True)
+        asyncio.run(self.engine.dispose())
+
+    async def _create_test_user_via_temp_engine(self) -> int:
+        # A dedicated, fully-disposed-before-return engine — NOT self.engine.
+        # asyncio.run() opens and closes its own event loop; if we drew this
+        # connection from self.engine's pool instead, that pool would keep a
+        # live connection bound to this now-closed loop, and TestClient's
+        # later request (its own separate loop) would crash reusing it
+        # ("attached to a different loop") — confirmed via a real failure
+        # when this was first tried against self.engine directly.
+        temp_engine = create_async_engine(settings.DATABASE_URL)
+        try:
+            temp_session_factory = async_sessionmaker(temp_engine, expire_on_commit=False)
+            async with temp_session_factory() as session:
+                user = await create_test_user(session)
+                await session.commit()
+                return user.id
+        finally:
+            await temp_engine.dispose()
 
     def _client(self) -> TestClient:
         async def override_user():
             return SimpleNamespace(
-                id=42,
+                id=self.test_user_id,
                 username="lukey",
                 email="lukey@example.com",
                 status=None,
                 is_active=True,
             )
 
+        async def override_db():
+            async with self.session_factory() as session:
+                yield session
+
         app.dependency_overrides[deps.get_current_user] = override_user
+        app.dependency_overrides[get_db] = override_db
         return TestClient(app, base_url="http://localhost")
 
     def _override_admin_session(self) -> None:

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import secrets
 import unittest
@@ -12,14 +13,18 @@ os.environ.setdefault("SECRET_KEY", secrets.token_hex(32))
 from fastapi import UploadFile
 from fastapi.testclient import TestClient
 from redis.exceptions import RedisError
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.pool import NullPool
 from starlette.requests import Request
 
 from app.api import deps
 from app.core.config import settings
+from app.core.database import get_db
 from app.core.http import RequestBodySizeLimitMiddleware
 from app.core.rate_limit import _memory_rate_limiter
 from app.core.upload_limits import PayloadTooLargeError, read_upload_within_limit, reject_by_content_length_hint
 from app.main import app
+from tests.media_test_support import create_test_user
 
 
 def _make_upload_file(content: bytes, filename: str = "file.png") -> UploadFile:
@@ -191,18 +196,52 @@ class UploadRoutesReal413Tests(unittest.TestCase):
         app.dependency_overrides.clear()
         _memory_rate_limiter._fixed_counters.clear()
         _memory_rate_limiter._sliding_counters.clear()
+        # Round 2 Task 3: the feedback-report route now writes a real
+        # FeedbackReport row (submitter_user_id is a real FK to users.id)
+        # before it ever gets to attachment-size validation. A fake user id
+        # with no get_db override only "worked" for the avatar/cover/
+        # post-image cases here because the ASGI body-size guard intercepts
+        # those before route code runs at all; feedback's guard threshold has
+        # more slack (title/description text fields also count), so that
+        # request reaches route code and previously hit a real
+        # ForeignKeyViolation instead of a clean 413. NullPool for the same
+        # reason as test_feedback_report_api.py: TestClient doesn't guarantee
+        # one persistent loop across separate requests.
+        self.engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
+        self.test_user_id = asyncio.run(self._create_test_user_via_temp_engine())
 
     def tearDown(self):
         app.dependency_overrides.clear()
         _memory_rate_limiter._fixed_counters.clear()
         _memory_rate_limiter._sliding_counters.clear()
+        asyncio.run(self.engine.dispose())
+
+    async def _create_test_user_via_temp_engine(self) -> int:
+        temp_engine = create_async_engine(settings.DATABASE_URL)
+        try:
+            temp_session_factory = async_sessionmaker(temp_engine, expire_on_commit=False)
+            async with temp_session_factory() as session:
+                user = await create_test_user(session)
+                await session.commit()
+                return user.id
+        finally:
+            await temp_engine.dispose()
 
     def _client_with_user(self) -> TestClient:
         async def override_user():
-            return SimpleNamespace(id=1, username="tester", avatar_url=None, cover_url=None)
+            return SimpleNamespace(
+                id=self.test_user_id, username="tester", avatar_url=None, cover_url=None,
+                email="tester@example.com",
+            )
+
+        async def override_db():
+            async with self.session_factory() as session:
+                yield session
 
         app.dependency_overrides[deps.get_current_user] = override_user
         app.dependency_overrides[deps.get_current_interactive_user] = override_user
+        app.dependency_overrides[get_db] = override_db
         return TestClient(app, base_url="http://localhost")
 
     def _oversized_body_for(self, limit_attr: str) -> bytes:
