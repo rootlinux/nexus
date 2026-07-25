@@ -110,7 +110,7 @@ Nexus is invite-only — `/register` requires a valid invite code, and a fresh d
 
 `invite_codes.created_by_id` is `NOT NULL`, so on a completely fresh database (no users yet) the script below creates a minimal, non-staff placeholder user to own the invite; on a database that already has a user, it reuses the first one instead.
 ```bash
-docker exec x-backend python -c "
+docker exec nexus-backend python -c "
 import asyncio, secrets, string
 from datetime import datetime, timedelta, timezone
 from app.main import app as _app  # ensures all models/routers are registered
@@ -160,7 +160,7 @@ Nexus sends transactional email for signup verification, password reset, and ema
 
 - **`capture` (default, used for local/dev)** — no real email is sent and no external service is required. Each outgoing message is written as a JSON file (subject, body, and the verification/reset link) to `MAIL_CAPTURE_DIR` (default `tmp/mail`). In the Docker smoke stack that directory isn't writable by the app user, so it automatically falls back to `/tmp/nexus-mail-capture/tmp/mail` inside the container (a warning is logged when this happens). Read the latest captured email to get a working verification link during local testing:
   ```bash
-  docker exec x-backend sh -c '
+  docker exec nexus-backend sh -c '
     dir=tmp/mail; [ -d /tmp/nexus-mail-capture/tmp/mail ] && dir=/tmp/nexus-mail-capture/tmp/mail
     ls -t "$dir" | head -1 | xargs -I{} cat "$dir/{}"
   '
