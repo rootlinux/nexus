@@ -97,7 +97,13 @@ class Settings(BaseSettings):
     ENABLE_ADMIN_WEBAUTHN_RECOVERY: bool = False
     ADMIN_WEBAUTHN_RECOVERY_IDENTIFIER: Optional[str] = None
     ADMIN_WEBAUTHN_RECOVERY_TOKEN_TTL_MINUTES: int = 10
+    # Deprecated: a single token granting read+notify+delete on /api/admin/service/*.
+    # Kept as a fallback so existing deployments don't break; migrate to the scoped
+    # SERVICE_TOKEN_* credentials below. See app/api/dependencies/service_auth.py.
     ADMIN_SERVICE_TOKEN: str = ""
+    SERVICE_TOKEN_READ: str = ""
+    SERVICE_TOKEN_NOTIFY: str = ""
+    SERVICE_TOKEN_DELETE: str = ""
 
     # App
     APP_ENV: str = "development"
@@ -301,11 +307,15 @@ class Settings(BaseSettings):
             if not 1 <= self.ADMIN_WEBAUTHN_RECOVERY_TOKEN_TTL_MINUTES <= 30:
                 raise ValueError("ADMIN_WEBAUTHN_RECOVERY_TOKEN_TTL_MINUTES must be between 1 and 30")
 
+        if self.ADMIN_SERVICE_TOKEN:
+            _config_logger.warning(
+                "ADMIN_SERVICE_TOKEN is deprecated and grants read+notify+delete access. "
+                "Migrate to the scoped SERVICE_TOKEN_READ/SERVICE_TOKEN_NOTIFY/SERVICE_TOKEN_DELETE "
+                "credentials instead."
+            )
+
         if not is_production:
             return self
-
-        if not self.ADMIN_SERVICE_TOKEN:
-            raise ValueError("ADMIN_SERVICE_TOKEN must be set in production")
 
         secret_key = self.SECRET_KEY.strip()
         if not secret_key:
