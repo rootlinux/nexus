@@ -43,7 +43,13 @@ jobs:
       - name: Install dependencies
         run: cd backend && pip install -r requirements.txt
       - name: Run linting
-        run: cd backend && pip install ruff && ruff check app/
+        # Pinned: an unpinned `pip install ruff` picks up whatever is newest at CI-run
+        # time, and ruff's default rule set has changed between minor versions (0.16
+        # added rules like import-sort and datetime-tzinfo checks that 0.15 didn't
+        # enable by default) — that turned a routine PR into a 300+ finding pre-existing
+        # lint backlog with no code change involved. Bump this deliberately, in its own
+        # commit, when actually adopting a newer ruff's rule set.
+        run: cd backend && pip install ruff==0.15.16 && ruff check app/
       - name: Run tests
         run: cd backend && python -m pytest tests/ -x -q
         env:
