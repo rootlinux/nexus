@@ -6,7 +6,7 @@
   auto_https off
 }
 
-app.x.localtest.me {
+app.nexus.localtest.me {
   encode zstd gzip
 
   @serviceWorker path /sw.js
@@ -18,7 +18,7 @@ app.x.localtest.me {
   reverse_proxy web:3000
 }
 
-api.x.localtest.me {
+api.nexus.localtest.me {
   encode zstd gzip
   reverse_proxy backend:8000
 }
