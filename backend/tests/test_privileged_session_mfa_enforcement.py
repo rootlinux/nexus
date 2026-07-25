@@ -20,6 +20,7 @@ from app.api.routes.auth import refresh_token
 from app.api.routes.webauthn import webauthn_auth_complete
 from app.main import app
 from app.models.refresh_token import RefreshToken
+from app.models.refresh_token_family import RefreshTokenFamily
 from app.models.staff_permission import StaffPermission, StaffRole
 from app.models.user import User, UserStatus
 from app.models.webauthn_credential import WebAuthnCredential
@@ -122,10 +123,18 @@ class SecurityClosureDB:
             cred = next((item for item in self.webauthn_credentials if item.user_id == user_id), None)
             return _ScalarResult(cred)
 
+        if entity is RefreshTokenFamily:
+            # lock_token_family's result is never read by the caller — this
+            # synchronous, single-threaded fake has no real concurrency to
+            # serialize against, so a harmless dummy is sufficient.
+            return _ScalarResult(None)
+
         if entity is RefreshToken:
             if "where refresh_tokens.token_hash =" in statement_text_lower:
                 token_hash = next((value for value in params.values() if isinstance(value, str)), None)
                 token = next((item for item in self.refresh_tokens if item.token_hash == token_hash), None)
+                if statement_text_lower.startswith("select refresh_tokens.token_family_id "):
+                    return _ScalarResult(token.token_family_id if token else None)
                 return _ScalarResult(token)
             if "where refresh_tokens.id =" in statement_text_lower:
                 token_id = _first_int_param()
@@ -150,6 +159,10 @@ class SecurityClosureDB:
                 return _ListResult(values)
 
         raise AssertionError(f"Unexpected entity {entity}")
+
+    async def scalar(self, statement):
+        result = await self.execute(statement)
+        return result.scalar()
 
     def add(self, instance):
         if isinstance(instance, RefreshToken):
@@ -302,6 +315,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
             id=10,
             user_id=user.id,
             token_hash="hashed-old-refresh",
+            token_family_id="family-10",
             expires_at=datetime.now(timezone.utc) + timedelta(days=7),
             revoked=False,
             mfa_satisfied=True,
@@ -436,6 +450,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
             id=71,
             user_id=target_user.id,
             token_hash="hashed-old-refresh",
+            token_family_id="family-71",
             expires_at=datetime.now(timezone.utc) + timedelta(days=7),
             revoked=False,
             mfa_satisfied=False,

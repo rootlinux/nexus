@@ -8,6 +8,7 @@ from app.models.follow import Follow
 from app.models.block import Block
 from app.models.bookmark import Bookmark
 from app.models.refresh_token import RefreshToken
+from app.models.refresh_token_family import RefreshTokenFamily
 from app.models.email_change_token import EmailChangeToken
 from app.models.email_verification_token import EmailVerificationToken
 from app.models.password_reset_token import PasswordResetToken
@@ -23,4 +24,4 @@ from app.models.media_asset import MediaAsset, MediaAssetStatus, MediaAssetType
 from app.models.feedback_report import FeedbackReport
 from app.models.user_media_quota import UserMediaQuota
 
-__all__ = ["User", "InviteCampaign", "InviteCode", "InviteUsage", "Post", "Like", "Follow", "Block", "Bookmark", "RefreshToken", "EmailChangeToken", "EmailVerificationToken", "PasswordResetToken", "AdminAuditLog", "Notification", "NotificationSettings", "PushSubscription", "DirectMessage", "ModerationSignal", "StaffPermission", "WaitlistApplication", "MediaAsset", "MediaAssetStatus", "MediaAssetType", "FeedbackReport", "UserMediaQuota"]
+__all__ = ["User", "InviteCampaign", "InviteCode", "InviteUsage", "Post", "Like", "Follow", "Block", "Bookmark", "RefreshToken", "RefreshTokenFamily", "EmailChangeToken", "EmailVerificationToken", "PasswordResetToken", "AdminAuditLog", "Notification", "NotificationSettings", "PushSubscription", "DirectMessage", "ModerationSignal", "StaffPermission", "WaitlistApplication", "MediaAsset", "MediaAssetStatus", "MediaAssetType", "FeedbackReport", "UserMediaQuota"]
