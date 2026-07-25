@@ -27,6 +27,7 @@ from app.schemas.post import (
 )
 from app.api.deps import get_current_interactive_user, get_current_user, get_optional_user
 from app.core.upload_limits import reject_by_content_length_hint, read_upload_within_limit
+from app.services.image_processing import sanitize_public_image
 from app.storage import get_storage_provider
 from app.services.blocks import get_block_relationship, get_blocked_user_ids, raise_blocked_interaction_error
 from app.services.discovery import TRENDING_WINDOW_HOURS, build_discovery_feed, build_trending_feed
@@ -447,11 +448,15 @@ async def upload_image(
 
     storage_provider = get_storage_provider()
 
+    # Decode + re-encode (strips EXIF/PNG-chunk metadata, rejects animated/unsupported
+    # formats via Pillow's own post-decode detection) — never store the raw upload.
+    sanitized = sanitize_public_image(content, detected_content_type=assessment.canonical_content_type)
+
     # Save file only after moderation passes so review-required uploads never become public.
     try:
         stored_media = await storage_provider.save_file(
-            content=content,
-            content_type=assessment.canonical_content_type or file.content_type or "image/jpeg",
+            content=sanitized.content,
+            content_type=sanitized.content_type,
             original_filename=file.filename,
         )
     except Exception:

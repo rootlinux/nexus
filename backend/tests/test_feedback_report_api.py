@@ -163,7 +163,16 @@ class FeedbackReportApiTests(unittest.TestCase):
             with patch("app.api.routes.feedback.enforce_rate_limits", new=AsyncMock()):
                 signed_response = client.get(attachment_url)
             self.assertEqual(signed_response.status_code, 200)
-            self.assertEqual(signed_response.content, SAMPLE_PNG)
+            # Round 2, Task 2: the stored attachment is now decoded + re-encoded
+            # (metadata stripping), so it is no longer byte-identical to the
+            # original upload — assert it's still a valid, same-dimension PNG.
+            from PIL import Image
+            from io import BytesIO
+
+            original = Image.open(BytesIO(SAMPLE_PNG))
+            stored = Image.open(BytesIO(signed_response.content))
+            self.assertEqual(stored.format, "PNG")
+            self.assertEqual(stored.size, original.size)
             self.assertEqual(signed_response.headers["content-type"], "image/png")
 
     def test_feedback_attachment_signed_url_rejects_invalid_signature(self):

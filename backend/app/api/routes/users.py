@@ -1,11 +1,6 @@
-from io import BytesIO
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status, Request
-from PIL import Image, ImageOps, UnidentifiedImageError
-
-# Prevent decompression bombs and pixel DoS from user-uploaded images
-Image.MAX_IMAGE_PIXELS = 50_000_000
 from pydantic import BaseModel
 
 from sqlalchemy import func, or_, select
@@ -17,6 +12,7 @@ from app.core.database import get_db
 from app.core.rate_limit import RATE_LIMIT_ERROR, RateLimitPolicy, build_scope_key, enforce_rate_limits, get_client_ip, hash_key_part
 from app.core.upload_limits import reject_by_content_length_hint, read_upload_within_limit
 from app.core.security import get_password_hash, verify_password
+from app.services.image_processing import sanitize_profile_image
 from app.models.block import Block
 from app.models.follow import Follow
 from app.models.user import User
@@ -59,7 +55,6 @@ from app.schemas.user import UserPrivateProfile, UserPublicProfile, UserAdminPro
 router = APIRouter(tags=["users"])
 
 # Moved to Settings.AVATAR_UPLOAD_MAX_BYTES / Settings.COVER_UPLOAD_MAX_BYTES (Round 2, Task 1) — values unchanged.
-PROFILE_IMAGE_BACKGROUND = "#0d0e12"
 
 
 def _escape_like_pattern(value: str) -> str:
@@ -308,49 +303,6 @@ async def get_user_profile(
     )
 
 
-def _image_has_transparency(image: Image.Image) -> bool:
-    if image.mode in {"RGBA", "LA"}:
-        alpha = image.getchannel("A")
-        minimum_alpha, maximum_alpha = alpha.getextrema()
-        return minimum_alpha < 255 or maximum_alpha < 255
-
-    if image.mode == "P":
-        transparency = image.info.get("transparency")
-        if transparency is None:
-            return False
-        if isinstance(transparency, bytes):
-            return any(alpha < 255 for alpha in transparency)
-        if isinstance(transparency, int):
-            return transparency in image.getdata()
-
-    return False
-
-
-def _normalize_profile_image_upload(content: bytes) -> bytes:
-    try:
-        with Image.open(BytesIO(content)) as uploaded_image:
-            image = ImageOps.exif_transpose(uploaded_image)
-
-            if _image_has_transparency(image):
-                background = Image.new("RGBA", image.size, PROFILE_IMAGE_BACKGROUND)
-                image = Image.alpha_composite(background, image.convert("RGBA"))
-
-            rgb_image = image.convert("RGB")
-            output = BytesIO()
-            rgb_image.save(output, format="JPEG", quality=91, optimize=True)
-            return output.getvalue()
-    except (Image.DecompressionBombError, ValueError) as exc:
-        # Covers decompression bombs and excessive pixel dimensions (MAX_IMAGE_PIXELS)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Image dimensions too large",
-        ) from exc
-    except (OSError, UnidentifiedImageError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to process uploaded file",
-        ) from exc
-
 @router.patch("/me/profile", response_model=UserProfile)
 async def update_my_profile(
     request: Request,
@@ -420,12 +372,12 @@ async def upload_my_avatar(
         raise_review_required_error(assessment.surface_type)
 
     storage_provider = get_storage_provider()
-    normalized_content = _normalize_profile_image_upload(content)
+    sanitized = sanitize_profile_image(content)
 
     try:
         stored_media = await storage_provider.save_file(
-            content=normalized_content,
-            content_type="image/jpeg",
+            content=sanitized.content,
+            content_type=sanitized.content_type,
             original_filename=file.filename,
         )
     except Exception as exc:
@@ -470,12 +422,12 @@ async def upload_my_cover(
         raise_review_required_error(assessment.surface_type)
 
     storage_provider = get_storage_provider()
-    normalized_content = _normalize_profile_image_upload(content)
+    sanitized = sanitize_profile_image(content)
 
     try:
         stored_media = await storage_provider.save_file(
-            content=normalized_content,
-            content_type="image/jpeg",
+            content=sanitized.content,
+            content_type=sanitized.content_type,
             original_filename=file.filename,
         )
     except Exception as exc:

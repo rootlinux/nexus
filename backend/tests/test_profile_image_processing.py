@@ -14,10 +14,10 @@ from fastapi import UploadFile
 from PIL import Image
 
 from app.api.routes.users import (
-    _normalize_profile_image_upload,
     upload_my_avatar,
     upload_my_cover,
 )
+from app.services.image_processing import sanitize_profile_image
 from app.models.moderation_signal import ModerationSurface
 
 
@@ -61,9 +61,10 @@ def _make_upload_file(filename: str = "cover.png") -> UploadFile:
 
 class ProfileImageProcessingTests(unittest.IsolatedAsyncioTestCase):
     def test_normalize_profile_image_upload_flattens_transparency_and_applies_exif_orientation(self):
-        normalized = _normalize_profile_image_upload(_make_transparent_png())
+        sanitized = sanitize_profile_image(_make_transparent_png())
+        self.assertEqual(sanitized.content_type, "image/jpeg")
 
-        result = Image.open(BytesIO(normalized))
+        result = Image.open(BytesIO(sanitized.content))
 
         self.assertEqual(result.format, "JPEG")
         self.assertEqual(result.mode, "RGB")

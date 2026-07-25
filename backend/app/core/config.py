@@ -155,6 +155,11 @@ class Settings(BaseSettings):
     PNG_DECOMPRESS_SLACK_BYTES: int = 4 * 1024
     PNG_MAX_COMPRESSED_INPUT_BYTES: int = 8 * 1024 * 1024
 
+    # Image metadata stripping (Round 2, Task 2)
+    IMAGE_PRESERVE_ICC_PROFILE: bool = False
+    IMAGE_REENCODE_JPEG_QUALITY: int = 91
+    IMAGE_REENCODE_WEBP_QUALITY: int = 90
+
     # Mail
     MAIL_PROVIDER: str = "capture"
     MAIL_CAPTURE_DIR: str = "tmp/mail"
