@@ -1,3 +1,4 @@
+import logging
 import secrets
 from dataclasses import dataclass
 
@@ -5,6 +6,8 @@ from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 api_key_header = APIKeyHeader(name="X-Service-Token", auto_error=False)
 
@@ -41,6 +44,8 @@ def _match_scoped_token(provided: str, required_scope: str) -> ServiceAuthContex
 
 
 def _match_legacy_token(provided: str, required_scope: str) -> ServiceAuthContext | None:
+    if not settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN:
+        return None
     legacy_token = settings.ADMIN_SERVICE_TOKEN
     if legacy_token and secrets.compare_digest(provided, legacy_token):
         return ServiceAuthContext(principal_id="legacy-admin-service", scopes=_LEGACY_TOKEN_SCOPES)
@@ -50,18 +55,27 @@ def _match_legacy_token(provided: str, required_scope: str) -> ServiceAuthContex
 def require_service_scope(required_scope: str):
     """FastAPI dependency factory: authenticate via X-Service-Token and require `required_scope`.
 
-    Prefers a scoped credential (SERVICE_TOKEN_READ/NOTIFY/DELETE) for the exact scope.
-    Falls back to the deprecated ADMIN_SERVICE_TOKEN, which still grants all three scopes,
-    so existing production deployments don't break until they migrate to scoped credentials.
+    Prefers a scoped credential (SERVICE_TOKEN_READ/NOTIFY/DELETE) for the exact scope. Falls
+    back to the deprecated ADMIN_SERVICE_TOKEN — which still grants all three scopes — only
+    when ENABLE_LEGACY_ADMIN_SERVICE_TOKEN is explicitly set to true; it is inert otherwise,
+    so simply having ADMIN_SERVICE_TOKEN set can no longer silently grant full access.
     """
 
     async def dependency(token: str = Security(api_key_header)) -> ServiceAuthContext:
         provided = token or ""
         if not provided:
+            # Never log the token itself — only that one was missing/invalid and which
+            # scope was being requested.
+            logger.warning("Service auth rejected: no X-Service-Token provided (scope=%s)", required_scope)
             raise HTTPException(status_code=403, detail="Invalid or missing service token")
 
         context = _match_scoped_token(provided, required_scope) or _match_legacy_token(provided, required_scope)
         if context is None:
+            logger.warning(
+                "Service auth rejected: token did not match required scope=%s (legacy_enabled=%s)",
+                required_scope,
+                settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN,
+            )
             raise HTTPException(status_code=403, detail="Invalid or missing service token")
 
         return context

@@ -70,6 +70,8 @@ Switch `REDIS_URL` to `rediss://:yourpassword@your-redis-host:6379/0` (TLS schem
 
 `REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK=true` does **not** accept just any host — it's not a blanket "trust me" switch. `REDIS_URL`'s host is still checked: an IP-literal host must be in a private or loopback range (RFC 1918, `127.0.0.0/8`, `::1`, etc.); a non-IP hostname (e.g. a Docker Compose service name like `redis`) must additionally be listed in `REDIS_PLAINTEXT_ALLOWED_HOSTS` (comma-separated), since a hostname can't be range-checked on its own. A public remote `redis://host` is rejected even with the flag set. `deploy/docker-compose.yml` sets `REDIS_PLAINTEXT_ALLOWED_HOSTS=redis` accordingly.
 
+**Service token migration:** `/api/admin/service/*` (used by `nexus-mcp` and similar integrations) now uses scoped credentials — `SERVICE_TOKEN_READ`, `SERVICE_TOKEN_NOTIFY`, `SERVICE_TOKEN_DELETE` — instead of one all-powerful token. Issue `nexus-mcp` a `SERVICE_TOKEN_READ` value only. The old `ADMIN_SERVICE_TOKEN` (read+notify+delete in one credential) still works as a deprecated fallback, but only when you also set `ENABLE_LEGACY_ADMIN_SERVICE_TOKEN=true` — merely having `ADMIN_SERVICE_TOKEN` set no longer grants access by itself. `ADMIN_SERVICE_TOKEN`/`ENABLE_LEGACY_ADMIN_SERVICE_TOKEN` are planned for removal once no deployment depends on them; migrate to the scoped variables and unset both.
+
 ## Testing
 
 40+ test modules, heavily weighted toward security behavior:

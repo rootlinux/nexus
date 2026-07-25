@@ -99,9 +99,12 @@ class Settings(BaseSettings):
     ADMIN_WEBAUTHN_RECOVERY_IDENTIFIER: Optional[str] = None
     ADMIN_WEBAUTHN_RECOVERY_TOKEN_TTL_MINUTES: int = 10
     # Deprecated: a single token granting read+notify+delete on /api/admin/service/*.
-    # Kept as a fallback so existing deployments don't break; migrate to the scoped
-    # SERVICE_TOKEN_* credentials below. See app/api/dependencies/service_auth.py.
+    # Inert by default — set ENABLE_LEGACY_ADMIN_SERVICE_TOKEN=true to activate it as a
+    # fallback while migrating to the scoped SERVICE_TOKEN_* credentials below. See
+    # app/api/dependencies/service_auth.py. Scheduled for removal once no deployment
+    # depends on it — see README's service-token migration note.
     ADMIN_SERVICE_TOKEN: str = ""
+    ENABLE_LEGACY_ADMIN_SERVICE_TOKEN: bool = False
     SERVICE_TOKEN_READ: str = ""
     SERVICE_TOKEN_NOTIFY: str = ""
     SERVICE_TOKEN_DELETE: str = ""
@@ -317,11 +320,20 @@ class Settings(BaseSettings):
             if not 1 <= self.ADMIN_WEBAUTHN_RECOVERY_TOKEN_TTL_MINUTES <= 30:
                 raise ValueError("ADMIN_WEBAUTHN_RECOVERY_TOKEN_TTL_MINUTES must be between 1 and 30")
 
-        if self.ADMIN_SERVICE_TOKEN:
+        if self.ADMIN_SERVICE_TOKEN and self.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN:
             _config_logger.warning(
-                "ADMIN_SERVICE_TOKEN is deprecated and grants read+notify+delete access. "
-                "Migrate to the scoped SERVICE_TOKEN_READ/SERVICE_TOKEN_NOTIFY/SERVICE_TOKEN_DELETE "
-                "credentials instead."
+                "ENABLE_LEGACY_ADMIN_SERVICE_TOKEN is active: ADMIN_SERVICE_TOKEN grants "
+                "read+notify+delete access on /api/admin/service/*. This is deprecated and "
+                "scheduled for removal — migrate to the scoped SERVICE_TOKEN_READ/"
+                "SERVICE_TOKEN_NOTIFY/SERVICE_TOKEN_DELETE credentials, then unset both "
+                "ADMIN_SERVICE_TOKEN and ENABLE_LEGACY_ADMIN_SERVICE_TOKEN."
+            )
+        elif self.ADMIN_SERVICE_TOKEN and not self.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN:
+            _config_logger.warning(
+                "ADMIN_SERVICE_TOKEN is set but inactive: ENABLE_LEGACY_ADMIN_SERVICE_TOKEN "
+                "is not enabled, so this token grants no access. Set "
+                "ENABLE_LEGACY_ADMIN_SERVICE_TOKEN=true to activate it (deprecated), or remove "
+                "ADMIN_SERVICE_TOKEN and use the scoped SERVICE_TOKEN_* credentials instead."
             )
 
         if not is_production:
