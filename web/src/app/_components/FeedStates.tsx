@@ -4,10 +4,6 @@ import { tokens } from '../../styles/tokens'
 import type { LucideIcon } from 'lucide-react'
 import { AlertCircle, FileText } from 'lucide-react'
 
-interface PostSkeletonProps {
-  // No props needed - self-contained
-}
-
 export function PostSkeleton() {
   return (
     <div style={{
