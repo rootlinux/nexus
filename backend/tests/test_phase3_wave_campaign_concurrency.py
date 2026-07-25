@@ -29,7 +29,6 @@ from app.services.invite_campaigns import CampaignRuleViolation, create_campaign
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-ALEMBIC_BIN = BACKEND_ROOT / ".venv" / "bin" / "alembic"
 
 
 class Phase3WaveCampaignConcurrencyTests(unittest.IsolatedAsyncioTestCase):
@@ -78,7 +77,11 @@ class Phase3WaveCampaignConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         env.setdefault("REDIS_URL", "redis://localhost:6379/0")
         env.setdefault("SECRET_KEY", secrets.token_hex(32))
         result = subprocess.run(
-            [str(ALEMBIC_BIN), "upgrade", "head"],
+            # Invoke alembic through the interpreter running this test (sys.executable)
+            # rather than a hardcoded .venv/bin/alembic path: CI installs dependencies
+            # into the runner's system Python with no .venv directory at all, so a
+            # fixed venv-relative path only ever resolves on a local dev machine.
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
             cwd=BACKEND_ROOT,
             env=env,
             capture_output=True,
