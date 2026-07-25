@@ -15,6 +15,7 @@ from app.api.deps import get_current_user, require_admin_session
 from app.core.rate_limit import RATE_LIMIT_ERROR, RateLimitPolicy, build_scope_key, enforce_rate_limits, get_client_ip, hash_key_part
 from app.core.config import settings
 from app.core.upload_limits import reject_by_content_length_hint, read_upload_within_limit
+from app.services.image_processing import sanitize_public_image
 from app.models.user import User
 from app.schemas.auth import NeutralActionResponse
 from app.schemas.feedback import FeedbackAttachmentReference, FeedbackReportRequest
@@ -181,12 +182,16 @@ async def _validate_and_store_attachment(request: Request, file: UploadFile) -> 
             detail=_feedback_attachment_error_message(reason_codes),
         )
 
-    content_type = detected_type or normalized_type or "image/jpeg"
+    # Decode + re-encode (strips EXIF/PNG-chunk metadata, rejects animated/unsupported
+    # formats via Pillow's own post-decode detection) — never store the raw upload.
+    # Feedback attachments are staff-only rather than literally "public," but can still
+    # carry sensitive EXIF (e.g. a screenshot with location data).
+    sanitized = sanitize_public_image(content, detected_content_type=detected_type)
     storage_provider = _get_feedback_storage_provider()
     try:
         stored_media = await storage_provider.save_file(
-            content=content,
-            content_type=content_type,
+            content=sanitized.content,
+            content_type=sanitized.content_type,
             original_filename=original_filename,
         )
     except Exception:
@@ -198,8 +203,8 @@ async def _validate_and_store_attachment(request: Request, file: UploadFile) -> 
 
     return FeedbackAttachmentReference(
         filename=_sanitize_attachment_name(original_filename),
-        content_type=content_type,
-        size_bytes=len(content),
+        content_type=sanitized.content_type,
+        size_bytes=len(sanitized.content),
         storage_key=stored_media.storage_key,
         access_url=_build_feedback_attachment_access_url(request, stored_media.storage_key),
     )
