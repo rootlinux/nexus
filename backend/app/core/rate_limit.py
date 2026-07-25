@@ -133,16 +133,25 @@ class _MemoryRateLimiter:
 
 _memory_rate_limiter = _MemoryRateLimiter()
 _redis_client: Redis | None = None
+_redis_client_loop: asyncio.AbstractEventLoop | None = None
 _redis_lock = asyncio.Lock()
 
 
 async def _get_redis_client() -> Redis:
-    global _redis_client
-    if _redis_client is not None:
+    # A redis.asyncio client's connection pool is bound to the event loop that was
+    # running when it was created. In production (uvicorn) there's exactly one
+    # long-lived loop, so caching a single client forever is correct and this check
+    # is a no-op. Under test harnesses that spin up a fresh loop per request (e.g.
+    # unittest.TestCase + TestClient), reusing a client created on a now-closed loop
+    # raises "RuntimeError: Event loop is closed" — so recreate the client whenever
+    # the running loop differs from the one the cached client was built for.
+    global _redis_client, _redis_client_loop
+    current_loop = asyncio.get_running_loop()
+    if _redis_client is not None and _redis_client_loop is current_loop:
         return _redis_client
 
     async with _redis_lock:
-        if _redis_client is None:
+        if _redis_client is None or _redis_client_loop is not current_loop:
             _redis_client = Redis.from_url(
                     settings.REDIS_URL,
                     encoding="utf-8",
@@ -151,6 +160,7 @@ async def _get_redis_client() -> Redis:
                     socket_connect_timeout=3,
                     max_connections=20,
                 )
+            _redis_client_loop = current_loop
         return _redis_client
 
 

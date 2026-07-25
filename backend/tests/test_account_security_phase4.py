@@ -56,6 +56,11 @@ class _ListResult:
         return list(self._values)
 
 
+class _UpdateResult:
+    def __init__(self, rowcount: int):
+        self.rowcount = rowcount
+
+
 class FakeAccountSecurityDB:
     def __init__(self):
         self.users: dict[int, User] = {}
@@ -78,6 +83,27 @@ class FakeAccountSecurityDB:
         statement_text = str(statement)
         if not hasattr(statement, "column_descriptions"):
             table_name = getattr(getattr(statement, "table", None), "name", "")
+
+            if table_name == "invite_codes":
+                # Mirrors auth.py's atomic conditional UPDATE ... WHERE current_uses <
+                # max_uses AND used_by_user_id IS NULL ... — only applies the SET values
+                # and reports rowcount=1 if the fake invite still matches that WHERE
+                # clause, rowcount=0 otherwise (the "lost the race" / already-consumed case).
+                invite_id = params.get("id_1")
+                invite = next((item for item in self.invites.values() if item.id == invite_id), None)
+                if (
+                    invite is None
+                    or invite.current_uses >= invite.max_uses
+                    or invite.used_by_user_id is not None
+                ):
+                    return _UpdateResult(rowcount=0)
+                invite.max_uses = params["max_uses"]
+                invite.current_uses = params["current_uses"]
+                invite.used_by_user_id = params["used_by_user_id"]
+                invite.used_at = params["used_at"]
+                invite.is_active = params["is_active"]
+                return _UpdateResult(rowcount=1)
+
             token_id = next((value for key, value in params.items() if key.startswith("id_")), None)
             used_at = params.get("used_at")
             if table_name == "email_verification_tokens":
@@ -110,7 +136,14 @@ class FakeAccountSecurityDB:
             return _ScalarResult(None)
 
         if entity is InviteCode:
-            code = next((value for key, value in params.items() if "code" in key), None)
+            # auth.py's invite lookup binds both a `code_hash` and a plaintext `code`
+            # parameter (hash-first legacy-fallback query); a bare "code" in key" match
+            # picks up `code_hash_1` first since dict iteration order follows the query's
+            # own clause order. Exclude it explicitly so this matches the plaintext code.
+            code = next(
+                (value for key, value in params.items() if "code" in key and "code_hash" not in key),
+                None,
+            )
             return _ScalarResult(self.invites.get(code))
 
         if entity is EmailVerificationToken:
