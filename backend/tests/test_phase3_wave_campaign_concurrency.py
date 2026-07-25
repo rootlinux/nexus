@@ -4,7 +4,7 @@ import secrets
 import subprocess
 import sys
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -94,7 +94,16 @@ class Phase3WaveCampaignConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self._run_command(["dropdb", "--if-exists", "--force", self.db_name])
 
     def _run_command(self, command: list[str]) -> None:
-        result = subprocess.run(command, capture_output=True, text=True)
+        # dropdb/createdb use libpq's default connection method (a local Unix socket)
+        # unless told otherwise, which doesn't exist when Postgres is only reachable
+        # over TCP (Docker Compose / CI service containers). Point them at the same
+        # host/port/user/password this file's own DATABASE_URLs already use.
+        env = dict(os.environ)
+        env.setdefault("PGHOST", "localhost")
+        env.setdefault("PGPORT", "5432")
+        env.setdefault("PGUSER", "postgres")
+        env.setdefault("PGPASSWORD", "postgres")
+        result = subprocess.run(command, env=env, capture_output=True, text=True)
         if result.returncode != 0:
             self.fail(
                 f"command failed: {' '.join(command)}\n"
@@ -159,7 +168,13 @@ class Phase3WaveCampaignConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             max_uses=1,
             current_uses=0,
             is_active=True,
-            expires_at=datetime.utcnow() + timedelta(hours=1),
+            # InviteCode.expires_at is DateTime(timezone=True) (timestamptz); a naive
+            # datetime.utcnow() here gets reinterpreted using the DB client's local
+            # timezone on write, silently shifting the stored instant (observed: appeared
+            # already expired). InviteCampaign's active_from/expires_at are plain
+            # DateTime with no timezone, so naive datetime.utcnow() is correct there and
+            # is left as-is.
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         )
         async with self.SessionLocal() as db:
             db.add(invite)
@@ -300,10 +315,24 @@ class Phase3WaveCampaignConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         invite = await self._create_campaign_invite_row(campaign_id=campaign.id, creator=creator)
         redeem_usernames = [f"r{uuid4().hex[:8]}", f"r{uuid4().hex[:7]}x"]
 
+        # Deterministic co-start: both requests wait on the same asyncio.Event and are
+        # released together, rather than relying on incidental task-scheduling timing or
+        # a sleep() to line them up. asyncio.create_task() schedules each coroutine to run
+        # up to its first await point as soon as the loop gets control back; a single
+        # `await asyncio.sleep(0)` yields once, which is enough for both tasks to reach
+        # and block on start_barrier.wait() before we release it.
+        start_barrier = asyncio.Event()
+        ready_count = 0
+        ready_lock = asyncio.Lock()
+
         transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
         with patch("app.api.routes.auth.enforce_rate_limits", new=AsyncMock()):
             async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
                 async def register(username: str):
+                    nonlocal ready_count
+                    async with ready_lock:
+                        ready_count += 1
+                    await start_barrier.wait()
                     return await client.post(
                         "/api/auth/register",
                         json={
@@ -317,6 +346,14 @@ class Phase3WaveCampaignConcurrencyTests(unittest.IsolatedAsyncioTestCase):
 
                 first = asyncio.create_task(register(redeem_usernames[0]))
                 second = asyncio.create_task(register(redeem_usernames[1]))
+
+                for _ in range(1000):
+                    if ready_count == 2:
+                        break
+                    await asyncio.sleep(0)
+                self.assertEqual(ready_count, 2, "both requests must reach the barrier before release")
+
+                start_barrier.set()
                 responses = await asyncio.wait_for(asyncio.gather(first, second), timeout=10)
 
         status_codes = sorted(response.status_code for response in responses)

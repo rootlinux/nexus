@@ -4,7 +4,7 @@ import re as _re
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
@@ -674,6 +674,33 @@ async def register(
             )
         )
 
+        # Atomic, conditional consume: the WHERE clause is evaluated by Postgres against
+        # the current row, so only one of two concurrent transactions racing on the same
+        # invite can match and update it — the loser's UPDATE affects 0 rows instead of
+        # both successfully overwriting each other. This is a second, independent
+        # guarantee on top of the SELECT ... FOR UPDATE above (which already serializes
+        # the two transactions), not a replacement for it.
+        consume_result = await db.execute(
+            update(InviteCode)
+            .where(
+                InviteCode.id == invite.id,
+                InviteCode.current_uses < InviteCode.max_uses,
+                InviteCode.used_by_user_id.is_(None),
+            )
+            .values(
+                current_uses=1,
+                used_by_user_id=new_user.id,
+                used_at=registration_time,
+                max_uses=1,
+                is_active=False,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if consume_result.rowcount != 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This invite code is invalid or unavailable.",
+            )
         invite.current_uses = 1
         invite.used_by_user_id = new_user.id
         invite.used_at = registration_time
