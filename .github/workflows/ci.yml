@@ -58,6 +58,8 @@ jobs:
         run: cd backend && alembic upgrade head
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/xplatform_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: ci-test-secret-key-not-used-in-production-000000000000000000000000000000
       - name: Run tests
         run: cd backend && python -m pytest tests/ -x -q
         env:
