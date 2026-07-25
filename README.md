@@ -62,11 +62,13 @@ This is where most of the engineering effort went:
 | **Authorization** | Staff permission system with audit logging, secure admin actions (MFA-gated) |
 | **Moderation** | Signal intake, moderation queue, user blocks, media moderation |
 
-**Production config validation:** `Settings()` fails fast on startup if it detects production-unsafe values — a weak `SECRET_KEY`, a `localhost`-origin CORS entry, a wildcard `ALLOWED_HOSTS`, or an unauthenticated Redis URL. If you deploy with `APP_ENV=production` and see:
+**Production config validation:** `Settings()` fails fast on startup if it detects production-unsafe values — a weak `SECRET_KEY`, a `localhost`-origin CORS entry, a wildcard `ALLOWED_HOSTS`, or a Redis URL that isn't TLS + authenticated. If you deploy with `APP_ENV=production` and see:
 
-> `Redis must use authentication and TLS in production. Set REDIS_URL to rediss://:password@host:port/db`
+> `Redis must use TLS in production. Set REDIS_URL to rediss://:password@host:port/db. If REDIS_URL points at a private Docker/VPC network with no TLS termination, set REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK=true to explicitly accept unencrypted Redis traffic within that network.`
 
-it means `REDIS_URL` is still using the local-dev `redis://host:port/db` form. Switch it to `rediss://:yourpassword@your-redis-host:6379/0` (TLS scheme + credentials) and restart.
+Switch `REDIS_URL` to `rediss://:yourpassword@your-redis-host:6379/0` (TLS scheme + credentials). The only exception is Redis reachable exclusively over a private Docker/VPC network with no public exposure (e.g. the bundled `deploy/docker-compose.yml` stack, where `redis` has no published port) — there, set `REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK=true` to explicitly accept plaintext `redis://` within that network. Authentication (a password in the URL) is still required either way.
+
+`REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK=true` does **not** accept just any host — it's not a blanket "trust me" switch. `REDIS_URL`'s host is still checked: an IP-literal host must be in a private or loopback range (RFC 1918, `127.0.0.0/8`, `::1`, etc.); a non-IP hostname (e.g. a Docker Compose service name like `redis`) must additionally be listed in `REDIS_PLAINTEXT_ALLOWED_HOSTS` (comma-separated), since a hostname can't be range-checked on its own. A public remote `redis://host` is rejected even with the flag set. `deploy/docker-compose.yml` sets `REDIS_PLAINTEXT_ALLOWED_HOSTS=redis` accordingly.
 
 ## Testing
 

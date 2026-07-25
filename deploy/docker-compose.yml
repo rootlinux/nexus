@@ -59,6 +59,13 @@ services:
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-api.x.localtest.me}
       TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
+      # redis: connects over this Compose stack's private internal network only (no
+      # published port), so plaintext redis:// here is a deliberate, scoped exception —
+      # not a general production allowance. "redis" is a Compose service hostname, not
+      # an IP, so it must also be explicitly allowlisted rather than trusted just because
+      # REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK is set.
+      REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK: ${REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK:-true}
+      REDIS_PLAINTEXT_ALLOWED_HOSTS: ${REDIS_PLAINTEXT_ALLOWED_HOSTS:-redis}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
       REFRESH_COOKIE_SAMESITE: ${REFRESH_COOKIE_SAMESITE:-lax}

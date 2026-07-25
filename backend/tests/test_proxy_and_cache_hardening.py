@@ -9,11 +9,53 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@lo
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("SECRET_KEY", secrets.token_hex(32))
 
+from starlette.requests import Request
+
 from app.core.http import (
     TrustedProxyHeadersMiddleware,
     _extract_client_ip_from_forwarded_chain,
     apply_cache_control_headers,
 )
+from app.core.rate_limit import build_scope_key, get_client_ip, hash_key_part
+
+
+def _build_request_behind_trusted_proxy(forwarded_for: str, *, trust_enabled: bool = True) -> Request:
+    seen_scope = {}
+
+    async def capture_app(scope, receive, send):
+        seen_scope.update(scope)
+
+    middleware = TrustedProxyHeadersMiddleware(
+        capture_app,
+        trusted_proxy_cidrs=["10.0.0.0/8"],
+        enabled=trust_enabled,
+    )
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/api/posts",
+        "raw_path": b"/api/posts",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"host", b"origin.internal"),
+            (b"x-forwarded-for", forwarded_for.encode()),
+        ],
+        "client": ("10.0.0.4", 1234),
+        "server": ("origin.internal", 8000),
+    }
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        return None
+
+    asyncio.run(middleware(scope, receive, send))
+    return Request(seen_scope)
 
 
 class ProxyAndCacheHardeningTests(unittest.TestCase):
@@ -81,6 +123,29 @@ class ProxyAndCacheHardeningTests(unittest.TestCase):
         self.assertEqual(seen_scope["scheme"], "https")
         headers = dict(seen_scope["headers"])
         self.assertEqual(headers[b"host"], b"api.example.com")
+
+    def test_two_clients_behind_same_trusted_proxy_get_separate_rate_limit_keys(self):
+        request_a = _build_request_behind_trusted_proxy("203.0.113.10")
+        request_b = _build_request_behind_trusted_proxy("203.0.113.20")
+
+        ip_a = get_client_ip(request_a)
+        ip_b = get_client_ip(request_b)
+        self.assertNotEqual(ip_a, ip_b)
+
+        key_a = build_scope_key("posts", "create", "ip", hash_key_part(ip_a))
+        key_b = build_scope_key("posts", "create", "ip", hash_key_part(ip_b))
+        self.assertNotEqual(key_a, key_b)
+
+    def test_without_proxy_trust_forwarded_clients_would_collapse_onto_the_shared_peer_ip(self):
+        # Same two forwarded clients as above, but with proxy trust disabled: this is
+        # exactly the failure mode the trusted-CIDR resolution above prevents — both
+        # requests fall back to the shared proxy's own peer IP and would share one
+        # rate-limit bucket instead of getting independent ones.
+        request_a = _build_request_behind_trusted_proxy("203.0.113.10", trust_enabled=False)
+        request_b = _build_request_behind_trusted_proxy("203.0.113.20", trust_enabled=False)
+
+        self.assertEqual(get_client_ip(request_a), get_client_ip(request_b))
+        self.assertEqual(get_client_ip(request_a), "10.0.0.4")
 
     def test_dynamic_api_responses_are_marked_no_store(self):
         response = Response()
