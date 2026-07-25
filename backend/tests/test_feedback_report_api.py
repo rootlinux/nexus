@@ -1,7 +1,9 @@
 import json
 import os
 import secrets
+import shutil
 import stat
+import tempfile
 import unittest
 from base64 import b64decode
 from urllib.parse import urlparse
@@ -33,6 +35,16 @@ class FeedbackReportApiTests(unittest.TestCase):
         self._original_feedback_to = settings.FEEDBACK_REPORT_TO_EMAIL
         self._original_mail_provider = settings.MAIL_PROVIDER
         self._original_mail_capture_dir = settings.MAIL_CAPTURE_DIR
+        # Round 2, Task 1 fix: this test file submits real feedback attachments
+        # through the real LocalStorageProvider (no storage mock), and
+        # _get_feedback_storage_provider() reads settings.FEEDBACK_ATTACHMENT_LOCAL_DIR
+        # fresh on every call. Left at its default, that resolves to the real,
+        # protected backend/feedback_private_uploads/ directory whenever tests
+        # run from backend/ — redirect it to an isolated temp directory for the
+        # duration of each test instead.
+        self._original_feedback_attachment_dir = settings.FEEDBACK_ATTACHMENT_LOCAL_DIR
+        self._feedback_attachment_temp_dir = tempfile.mkdtemp(prefix="feedback-attachments-test-")
+        settings.FEEDBACK_ATTACHMENT_LOCAL_DIR = self._feedback_attachment_temp_dir
 
     def tearDown(self):
         app.dependency_overrides.clear()
@@ -41,6 +53,8 @@ class FeedbackReportApiTests(unittest.TestCase):
         settings.FEEDBACK_REPORT_TO_EMAIL = self._original_feedback_to
         settings.MAIL_PROVIDER = self._original_mail_provider
         settings.MAIL_CAPTURE_DIR = self._original_mail_capture_dir
+        settings.FEEDBACK_ATTACHMENT_LOCAL_DIR = self._original_feedback_attachment_dir
+        shutil.rmtree(self._feedback_attachment_temp_dir, ignore_errors=True)
 
     def _client(self) -> TestClient:
         async def override_user():
@@ -212,8 +226,10 @@ class FeedbackReportApiTests(unittest.TestCase):
                 files={"attachment": ("oversized.png", oversized_png, "image/png")},
             )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"detail": "Attachment must be 5 MB or smaller."})
+        # Round 2, Task 1: oversize now short-circuits to 413 (via the ASGI body-size
+        # guard / read_upload_within_limit) before assess_media_input/inspect_media_bytes
+        # ever runs, instead of surfacing as a 400 after a full read.
+        self.assertEqual(response.status_code, 413)
 
     def test_feedback_report_rejects_invalid_payload(self):
         with patch("app.core.rate_limit._hit_redis_limit", new=AsyncMock(side_effect=RedisError("down"))):

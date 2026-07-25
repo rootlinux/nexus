@@ -26,6 +26,7 @@ from app.schemas.post import (
     RepostResponse,
 )
 from app.api.deps import get_current_interactive_user, get_current_user, get_optional_user
+from app.core.upload_limits import reject_by_content_length_hint, read_upload_within_limit
 from app.storage import get_storage_provider
 from app.services.blocks import get_block_relationship, get_blocked_user_ids, raise_blocked_interaction_error
 from app.services.discovery import TRENDING_WINDOW_HOURS, build_discovery_feed, build_trending_feed
@@ -119,7 +120,7 @@ def _validate_media_url_no_ssrf(url: str) -> None:
 
 router = APIRouter(tags=["posts"])
 
-MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+# Moved to Settings.POST_IMAGE_UPLOAD_MAX_BYTES (Round 2, Task 1) — value unchanged.
 
 
 def _normalize_repost_target(post: Post) -> Post:
@@ -422,13 +423,10 @@ async def upload_image(
     """
     await enforce_rate_limits(request, _media_upload_policies(current_user.id))
 
-    try:
-        content = await file.read()
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to read uploaded file"
-        ) from exc
+    reject_by_content_length_hint(
+        request, limit=settings.POST_IMAGE_UPLOAD_MAX_BYTES + settings.UPLOAD_GUARD_OVERHEAD_BYTES
+    )
+    content = await read_upload_within_limit(file, limit=settings.POST_IMAGE_UPLOAD_MAX_BYTES)
 
     assessment = assess_media_input(
         ModerationSurface.POST_MEDIA,
@@ -436,7 +434,7 @@ async def upload_image(
         original_filename=file.filename,
         content=content,
         content_size=len(content),
-        max_size=MAX_FILE_SIZE,
+        max_size=settings.POST_IMAGE_UPLOAD_MAX_BYTES,
     )
     signal = await create_moderation_signal(db, user_id=current_user.id, assessment=assessment)
     if assessment.is_blocked:

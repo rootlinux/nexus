@@ -12,8 +12,10 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.api.deps import get_current_interactive_user, get_current_user, get_optional_user
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import RATE_LIMIT_ERROR, RateLimitPolicy, build_scope_key, enforce_rate_limits, get_client_ip, hash_key_part
+from app.core.upload_limits import reject_by_content_length_hint, read_upload_within_limit
 from app.core.security import get_password_hash, verify_password
 from app.models.block import Block
 from app.models.follow import Follow
@@ -56,8 +58,7 @@ from app.schemas.user import UserPrivateProfile, UserPublicProfile, UserAdminPro
 
 router = APIRouter(tags=["users"])
 
-MAX_AVATAR_FILE_SIZE = 5 * 1024 * 1024
-MAX_COVER_FILE_SIZE = 8 * 1024 * 1024
+# Moved to Settings.AVATAR_UPLOAD_MAX_BYTES / Settings.COVER_UPLOAD_MAX_BYTES (Round 2, Task 1) — values unchanged.
 PROFILE_IMAGE_BACKGROUND = "#0d0e12"
 
 
@@ -307,18 +308,6 @@ async def get_user_profile(
     )
 
 
-async def _read_uploaded_image(file: UploadFile) -> bytes:
-    try:
-        content = await file.read()
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to read uploaded file",
-        ) from exc
-
-    return content
-
-
 def _image_has_transparency(image: Image.Image) -> bool:
     if image.mode in {"RGBA", "LA"}:
         alpha = image.getchannel("A")
@@ -410,14 +399,17 @@ async def upload_my_avatar(
     db: AsyncSession = Depends(get_db),
 ):
     await enforce_rate_limits(request, _profile_image_upload_policies(current_user.id, "avatar"))
-    content = await _read_uploaded_image(file)
+    reject_by_content_length_hint(
+        request, limit=settings.AVATAR_UPLOAD_MAX_BYTES + settings.UPLOAD_GUARD_OVERHEAD_BYTES
+    )
+    content = await read_upload_within_limit(file, limit=settings.AVATAR_UPLOAD_MAX_BYTES)
     assessment = assess_media_input(
         ModerationSurface.PROFILE_AVATAR,
         content_type=file.content_type,
         original_filename=file.filename,
         content=content,
         content_size=len(content),
-        max_size=MAX_AVATAR_FILE_SIZE,
+        max_size=settings.AVATAR_UPLOAD_MAX_BYTES,
     )
     signal = await create_moderation_signal(db, user_id=current_user.id, assessment=assessment)
     if assessment.is_blocked:
@@ -457,14 +449,17 @@ async def upload_my_cover(
     db: AsyncSession = Depends(get_db),
 ):
     await enforce_rate_limits(request, _profile_image_upload_policies(current_user.id, "cover"))
-    content = await _read_uploaded_image(file)
+    reject_by_content_length_hint(
+        request, limit=settings.COVER_UPLOAD_MAX_BYTES + settings.UPLOAD_GUARD_OVERHEAD_BYTES
+    )
+    content = await read_upload_within_limit(file, limit=settings.COVER_UPLOAD_MAX_BYTES)
     assessment = assess_media_input(
         ModerationSurface.PROFILE_COVER,
         content_type=file.content_type,
         original_filename=file.filename,
         content=content,
         content_size=len(content),
-        max_size=MAX_COVER_FILE_SIZE,
+        max_size=settings.COVER_UPLOAD_MAX_BYTES,
     )
     signal = await create_moderation_signal(db, user_id=current_user.id, assessment=assessment)
     if assessment.is_blocked:

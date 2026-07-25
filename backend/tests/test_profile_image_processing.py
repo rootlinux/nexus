@@ -116,7 +116,7 @@ class ProfileImageProcessingTests(unittest.IsolatedAsyncioTestCase):
             return_value=storage,
         ):
             response = await endpoint(
-                request=SimpleNamespace(),
+                request=SimpleNamespace(headers={}),
                 file=_make_upload_file(),
                 current_user=current_user,
                 db=db,
