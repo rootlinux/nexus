@@ -15,6 +15,7 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from app.api.deps import get_current_user, require_admin_session
 from app.core.database import get_db
+from app.core.signing_keys import SigningPurpose, derive_purpose_key, legacy_signing_verification_allowed
 from app.core.rate_limit import RATE_LIMIT_ERROR, RateLimitPolicy, build_scope_key, enforce_rate_limits, get_client_ip, hash_key_part
 from app.core.config import settings
 from app.core.upload_limits import reject_by_content_length_hint, read_upload_within_limit
@@ -125,6 +126,13 @@ def _get_feedback_storage_provider():
 
 def _feedback_attachment_signature(storage_key: str, expires_at: int) -> str:
     payload = f"{storage_key}:{expires_at}".encode("utf-8")
+    return hmac.new(derive_purpose_key(SigningPurpose.FEEDBACK_ATTACHMENT_LINK), payload, sha256).hexdigest()
+
+
+def _legacy_feedback_attachment_signature(storage_key: str, expires_at: int) -> str:
+    """Pre-Task-6 scheme: raw SECRET_KEY, no purpose derivation. Only ever
+    computed when legacy_signing_verification_allowed() is True."""
+    payload = f"{storage_key}:{expires_at}".encode("utf-8")
     return hmac.new(settings.SECRET_KEY.encode("utf-8"), payload, sha256).hexdigest()
 
 
@@ -146,8 +154,15 @@ def _verify_feedback_attachment_access(storage_key: str, *, expires: int, sig: s
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Attachment link expired")
 
     expected = _feedback_attachment_signature(storage_key, expires)
-    if not hmac.compare_digest(expected, sig):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid attachment signature")
+    if hmac.compare_digest(expected, sig):
+        return
+
+    if legacy_signing_verification_allowed():
+        legacy_expected = _legacy_feedback_attachment_signature(storage_key, expires)
+        if hmac.compare_digest(legacy_expected, sig):
+            return
+
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid attachment signature")
 
 
 async def _validate_and_store_attachment(

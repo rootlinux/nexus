@@ -31,6 +31,7 @@ class PushNotificationIntegrationTests(unittest.TestCase):
 
             from app.core.config import settings
             from app.core.database import AsyncSessionLocal
+            from app.core.signing_keys import SigningPurpose, derive_purpose_key
             from app.main import app
             from app.models.notification import NotificationType
             from app.models.notification_settings import NotificationSettings
@@ -66,9 +67,10 @@ class PushNotificationIntegrationTests(unittest.TestCase):
                         {
                             "sub": str(user.id),
                             "username": user.username,
+                            "purpose": SigningPurpose.JWT_ACCESS.value,
                             "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
                         },
-                        settings.SECRET_KEY,
+                        derive_purpose_key(SigningPurpose.JWT_ACCESS),
                         algorithm=settings.ALGORITHM,
                     )
 
