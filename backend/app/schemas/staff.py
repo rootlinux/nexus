@@ -58,6 +58,7 @@ class StaffPermissionRead(StaffPermissionBase):
     can_reset_passwords: bool = False
     can_revoke_sessions: bool = False
     can_create_wave_campaigns: bool = False
+    can_view_feedback: bool = False
     role: StaffRole
 
 

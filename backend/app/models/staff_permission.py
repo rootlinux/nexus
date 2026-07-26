@@ -40,6 +40,7 @@ class StaffPermission(Base):
     can_reset_passwords = Column(Boolean, nullable=False, default=False)
     can_revoke_sessions = Column(Boolean, nullable=False, default=False)
     can_create_wave_campaigns = Column(Boolean, nullable=False, default=False)
+    can_view_feedback = Column(Boolean, nullable=False, default=False)
     updated_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -9,6 +9,16 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+# Registers every model class the declarative registry needs to resolve
+# string-referenced relationships. app.models's own __init__ doesn't import
+# webauthn_credential at all (confirmed directly — not just app.models
+# itself is insufficient here), so any query touching User — even
+# transitively — hits a mapper-configuration error the moment SQLAlchemy
+# tries to resolve User.webauthn_credentials, since this script's entry
+# point never imports app.main / the full app the way the running
+# application always does.
+import app.models  # noqa: F401
+import app.models.webauthn_credential  # noqa: F401
 from app.models.media_asset import MediaAsset, MediaAssetType
 from app.services.media_assets import find_cleanup_candidates
 

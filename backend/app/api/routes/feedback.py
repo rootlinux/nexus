@@ -2,6 +2,7 @@ import asyncio
 import logging
 import hmac
 import mimetypes
+from dataclasses import dataclass
 from hashlib import sha256
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,24 +11,28 @@ from urllib.parse import urlencode, urljoin
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
-from app.api.deps import get_current_user, require_admin_session
+from app.api.deps import get_current_user
+from app.core.authorization import Capability
 from app.core.database import get_db
 from app.core.signing_keys import SigningPurpose, derive_purpose_key, legacy_signing_verification_allowed
 from app.core.rate_limit import RATE_LIMIT_ERROR, RateLimitPolicy, build_scope_key, enforce_rate_limits, get_client_ip, hash_key_part
 from app.core.config import settings
 from app.core.upload_limits import reject_by_content_length_hint, read_upload_within_limit
+from app.services.audit import write_audit_log
 from app.services.image_processing import sanitize_public_image
 from app.models.feedback_report import FeedbackReport
-from app.models.media_asset import MediaAsset, MediaAssetType
+from app.models.media_asset import MediaAsset, MediaAssetStatus, MediaAssetType
 from app.models.user import User
 from app.schemas.auth import NeutralActionResponse
 from app.schemas.feedback import FeedbackAttachmentReference, FeedbackReportRequest
 from app.services.media_assets import attach_pending_media, run_media_operation, write_media_to_storage_and_flush
 from app.services.moderation_intake import BLOCKED_IMAGE_TYPES, inspect_media_bytes
 from app.services.mail import build_feedback_report_message, get_mail_sender
+from app.services.staff_permissions import enforce_staff_capability
 from app.storage import get_storage_provider
 from app.storage.local import LocalStorageProvider
 
@@ -124,45 +129,179 @@ def _get_feedback_storage_provider():
     return storage_provider
 
 
-def _feedback_attachment_signature(storage_key: str, expires_at: int) -> str:
-    payload = f"{storage_key}:{expires_at}".encode("utf-8")
+def _feedback_attachment_signature(*, feedback_report_id: int, storage_key: str, expires: int) -> str:
+    payload = f"{feedback_report_id}:{storage_key}:{expires}".encode("utf-8")
     return hmac.new(derive_purpose_key(SigningPurpose.FEEDBACK_ATTACHMENT_LINK), payload, sha256).hexdigest()
 
 
 def _legacy_feedback_attachment_signature(storage_key: str, expires_at: int) -> str:
-    """Pre-Task-6 scheme: raw SECRET_KEY, no purpose derivation. Only ever
-    computed when legacy_signing_verification_allowed() is True."""
+    """The exact pre-Task-6/Task-7 scheme: raw SECRET_KEY, no purpose
+    derivation, no feedback_report_id binding (2 fields only). Only ever
+    computed when legacy_signing_verification_allowed() is True — this is
+    what a genuine link issued before this task shipped actually looks
+    like; a link can never be re-signed retroactively to add the new
+    binding, so this scheme is preserved exactly."""
     payload = f"{storage_key}:{expires_at}".encode("utf-8")
     return hmac.new(settings.SECRET_KEY.encode("utf-8"), payload, sha256).hexdigest()
 
 
-def _build_feedback_attachment_access_url(request: Request, storage_key: str) -> str:
+def _is_safe_storage_key(storage_key: str) -> bool:
+    """Stands in for the MediaAsset DB binding new-format links require,
+    for the legacy path where no such row exists at all (pre-Task-3
+    feedback attachments predate MediaAsset entirely). Delegates to the
+    storage provider's own resolve_storage_path — the same filename-shape
+    and path-escape validation the download route already applies before
+    ever opening the file."""
+    storage_provider = _get_feedback_storage_provider()
+    if not isinstance(storage_provider, LocalStorageProvider):
+        return False
+    try:
+        storage_provider.resolve_storage_path(storage_key)
+    except (HTTPException, ValueError):
+        return False
+    return True
+
+
+def _is_expired(expires: int) -> bool:
+    return expires < int(datetime.now(timezone.utc).timestamp())
+
+
+def _build_feedback_attachment_access_url(storage_key: str, *, feedback_report_id: int) -> str:
+    # Base URL is an explicit config value, never derived from the incoming
+    # request (request.base_url is Host-header-derived and attacker-
+    # influenceable) — see API_PUBLIC_BASE_URL.
     expires_at = int(datetime.now(timezone.utc).timestamp()) + (settings.FEEDBACK_ATTACHMENT_URL_TTL_MINUTES * 60)
     params = urlencode(
         {
             "expires": expires_at,
-            "sig": _feedback_attachment_signature(storage_key, expires_at),
+            "feedback_report_id": feedback_report_id,
+            "sig": _feedback_attachment_signature(
+                feedback_report_id=feedback_report_id, storage_key=storage_key, expires=expires_at,
+            ),
         }
     )
     relative_path = f"{settings.FEEDBACK_ATTACHMENT_URL_PREFIX.rstrip('/')}/{storage_key}?{params}"
-    return urljoin(str(request.base_url), relative_path.lstrip("/"))
+    return urljoin(settings.API_PUBLIC_BASE_URL.rstrip("/") + "/", relative_path.lstrip("/"))
 
 
-def _verify_feedback_attachment_access(storage_key: str, *, expires: int, sig: str) -> None:
-    now = int(datetime.now(timezone.utc).timestamp())
-    if expires < now:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Attachment link expired")
+@dataclass(frozen=True)
+class FeedbackAttachmentVerification:
+    verification_path: str  # "new" or "legacy" — asserted directly by tests/audit logging, never inferred
 
-    expected = _feedback_attachment_signature(storage_key, expires)
-    if hmac.compare_digest(expected, sig):
-        return
 
-    if legacy_signing_verification_allowed():
-        legacy_expected = _legacy_feedback_attachment_signature(storage_key, expires)
-        if hmac.compare_digest(legacy_expected, sig):
-            return
+class FeedbackAttachmentAccessDenied(Exception):
+    def __init__(self, *, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
 
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid attachment signature")
+
+async def _verify_feedback_attachment_access(
+    db: AsyncSession, *, storage_key: str, feedback_report_id: int | None, expires: int, sig: str,
+) -> FeedbackAttachmentVerification:
+    """feedback_report_id's presence or absence selects an entirely
+    different verification scheme — it is not optional data on an
+    otherwise-uniform check:
+
+    - PRESENT: always a new-format link. Signature must be computed over
+      the feedback_report_id-inclusive payload, must be unexpired, and must
+      resolve to a live, ATTACHED MediaAsset row bound to exactly this
+      (storage_key, feedback_report_id) pair. The DB binding is mandatory —
+      the signature alone is never sufficient here, regardless of
+      legacy-window state.
+    - ABSENT: accepted ONLY as a genuine legacy link, and ONLY while
+      legacy_signing_verification_allowed() is True. Once that window is
+      closed, an absent feedback_report_id is rejected outright — never
+      silently treated as "must be legacy, let it through."
+    """
+    if feedback_report_id is not None:
+        expected_sig = _feedback_attachment_signature(
+            feedback_report_id=feedback_report_id, storage_key=storage_key, expires=expires,
+        )
+        if not hmac.compare_digest(expected_sig, sig):
+            raise FeedbackAttachmentAccessDenied(reason="invalid_signature")
+        if _is_expired(expires):
+            raise FeedbackAttachmentAccessDenied(reason="expired")
+        asset = await db.scalar(
+            select(MediaAsset).where(
+                MediaAsset.storage_key == storage_key,
+                MediaAsset.attached_to_type == "feedback_report",
+                MediaAsset.attached_to_id == feedback_report_id,
+                MediaAsset.status == MediaAssetStatus.ATTACHED,
+            )
+        )
+        if asset is None:
+            raise FeedbackAttachmentAccessDenied(reason="binding_mismatch")
+        return FeedbackAttachmentVerification(verification_path="new")
+
+    if not legacy_signing_verification_allowed():
+        raise FeedbackAttachmentAccessDenied(reason="invalid_signature")
+
+    # Legacy path: uses ONLY the exact old 2-field signature scheme — never
+    # the new feedback_report_id-inclusive payload, since a genuinely old
+    # link's signature was never computed over that field. No MediaAsset
+    # binding check is attempted either — pre-Task-3 attachments have no
+    # row to bind to, by construction. A safe storage-path check stands in.
+    expected_legacy_sig = _legacy_feedback_attachment_signature(storage_key, expires)
+    if not hmac.compare_digest(expected_legacy_sig, sig):
+        raise FeedbackAttachmentAccessDenied(reason="invalid_signature")
+    if _is_expired(expires):
+        raise FeedbackAttachmentAccessDenied(reason="expired")
+    if not _is_safe_storage_key(storage_key):
+        raise FeedbackAttachmentAccessDenied(reason="invalid_signature")
+    return FeedbackAttachmentVerification(verification_path="legacy")
+
+
+async def _verify_feedback_attachment_access_or_log(
+    db: AsyncSession, request: Request, *, storage_key: str, feedback_report_id: int | None,
+    expires: int, sig: str, current_user: User,
+) -> FeedbackAttachmentVerification:
+    try:
+        return await _verify_feedback_attachment_access(
+            db, storage_key=storage_key, feedback_report_id=feedback_report_id, expires=expires, sig=sig,
+        )
+    except FeedbackAttachmentAccessDenied as exc:
+        try:
+            await write_audit_log(
+                db, action="feedback.attachment_verification_failed", actor_user=current_user, actor_type="user",
+                target_type="feedback_attachment", target_id=storage_key,
+                after={"storage_key": storage_key, "feedback_report_id": feedback_report_id, "reason": exc.reason},
+                request=request, success=False,
+            )
+            await db.commit()
+        except Exception:
+            # Local-only fallback logging if the audit write itself fails —
+            # the 403 below is unconditional regardless, so a broken audit
+            # log can never turn into an accidental grant of access.
+            logger.warning("feedback_verification_failure_audit_write_failed", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired attachment link.") from exc
+
+
+async def require_feedback_read_with_audit(
+    request: Request,
+    storage_key: str,
+    feedback_report_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Wraps enforce_staff_capability so a denial is audited before the
+    HTTPException propagates — enforce_staff_capability itself raises
+    during dependency resolution, before a route handler body would ever
+    run, so logging inside the handler would never see a denial at all."""
+    try:
+        enforce_staff_capability(current_user, Capability.FEEDBACK_READ)
+    except HTTPException as exc:
+        try:
+            await write_audit_log(
+                db, action="feedback.attachment_access_denied", actor_user=current_user, actor_type="user",
+                target_type="feedback_attachment", target_id=storage_key,
+                after={"storage_key": storage_key, "feedback_report_id": feedback_report_id},
+                request=request, success=False,
+            )
+            await db.commit()
+        except Exception:
+            logger.warning("feedback_access_denial_audit_write_failed", exc_info=True)
+        raise exc
+    return current_user
 
 
 async def _validate_and_store_attachment(
@@ -286,7 +425,9 @@ async def submit_feedback_report(
                 content_type=asset.content_type,
                 size_bytes=asset.file_size_bytes,
                 storage_key=asset.storage_key,
-                access_url=_build_feedback_attachment_access_url(request, asset.storage_key),
+                access_url=_build_feedback_attachment_access_url(
+                    asset.storage_key, feedback_report_id=feedback_report.id,
+                ),
             )
         return feedback_report, attachment_ref
 
@@ -334,7 +475,9 @@ async def download_feedback_attachment(
     storage_key: str,
     expires: int,
     sig: str,
-    current_user: User = Depends(require_admin_session),
+    feedback_report_id: int | None = None,
+    current_user: User = Depends(require_feedback_read_with_audit),
+    db: AsyncSession = Depends(get_db),
 ):
     await enforce_rate_limits(request, _feedback_attachment_read_policies(request))
     storage_provider = _get_feedback_storage_provider()
@@ -344,7 +487,10 @@ async def download_feedback_attachment(
             detail="Feedback attachment downloads are not configured for this storage backend.",
         )
 
-    _verify_feedback_attachment_access(storage_key, expires=expires, sig=sig)
+    verification = await _verify_feedback_attachment_access_or_log(
+        db, request, storage_key=storage_key, feedback_report_id=feedback_report_id,
+        expires=expires, sig=sig, current_user=current_user,
+    )
 
     try:
         file_path = storage_provider.resolve_storage_path(storage_key)
@@ -355,6 +501,15 @@ async def download_feedback_attachment(
 
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
+
+    await write_audit_log(
+        db, action="feedback.attachment_downloaded", actor_user=current_user, actor_type="user",
+        target_type="feedback_attachment", target_id=storage_key,
+        after={"feedback_report_id": feedback_report_id, "storage_key": storage_key,
+               "verification_path": verification.verification_path},
+        request=request, success=True,
+    )
+    await db.commit()
 
     media_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
     return FileResponse(path=file_path, media_type=media_type)
