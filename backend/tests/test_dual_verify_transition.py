@@ -15,7 +15,11 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from pydantic import ValidationError
 
 from app.api.deps import _decode_access_token
-from app.api.routes.feedback import _feedback_attachment_signature, _verify_feedback_attachment_access
+from app.api.routes.feedback import (
+    FeedbackAttachmentAccessDenied,
+    _feedback_attachment_signature,
+    _verify_feedback_attachment_access,
+)
 from app.core.config import Settings, settings
 from app.core.signing_keys import SigningPurpose, decode_jwt_with_fallback, derive_purpose_key
 from app.models.email_change_token import EmailChangeToken
@@ -182,46 +186,68 @@ class DualVerifyTransitionAccountSecretTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotEqual(new_hash, _legacy_hash("some-fresh-secret"))
 
 
-class DualVerifyTransitionFeedbackAttachmentTests(unittest.TestCase):
-    def setUp(self):
-        self._original_deadline = settings.SIGNING_KEY_LEGACY_VERIFY_UNTIL
+class DualVerifyTransitionFeedbackAttachmentTests(unittest.IsolatedAsyncioTestCase):
+    """Round 2 Task 7 rewrote _verify_feedback_attachment_access into a
+    genuinely async, DB-backed function (db, storage_key, feedback_report_id,
+    expires, sig) returning a typed FeedbackAttachmentVerification / raising
+    FeedbackAttachmentAccessDenied, and _feedback_attachment_signature now
+    requires feedback_report_id too. These tests exercise Task 7's LEGACY
+    branch (feedback_report_id=None) specifically, since that's the exact
+    scheme this dual-verify-gating test class cares about — the new-format
+    branch's own binding/signature behavior is covered exhaustively in
+    test_feedback_attachment_binding.py."""
 
-    def tearDown(self):
+    async def asyncSetUp(self):
+        self._original_deadline = settings.SIGNING_KEY_LEGACY_VERIFY_UNTIL
+        self.engine = create_async_engine(settings.DATABASE_URL)
+        self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
+        self.db = self.session_factory()
+
+    async def asyncTearDown(self):
         settings.SIGNING_KEY_LEGACY_VERIFY_UNTIL = self._original_deadline
+        await self.db.close()
+        await self.engine.dispose()
 
     def _legacy_signature(self, storage_key: str, expires_at: int) -> str:
         payload = f"{storage_key}:{expires_at}".encode("utf-8")
         return hmac_module.new(settings.SECRET_KEY.encode("utf-8"), payload, sha256).hexdigest()
 
-    def test_legacy_feedback_link_rejected_by_default_verifies_with_future_deadline(self):
+    async def test_legacy_feedback_link_rejected_by_default_verifies_with_future_deadline(self):
         storage_key = "11111111-1111-1111-1111-111111111111.png"
         expires_at = int(datetime.now(timezone.utc).timestamp()) + 3600
         legacy_sig = self._legacy_signature(storage_key, expires_at)
 
         settings.SIGNING_KEY_LEGACY_VERIFY_UNTIL = None
-        with self.assertRaises(HTTPException) as ctx:
-            _verify_feedback_attachment_access(storage_key, expires=expires_at, sig=legacy_sig)
-        self.assertEqual(ctx.exception.status_code, 403)
+        with self.assertRaises(FeedbackAttachmentAccessDenied):
+            await _verify_feedback_attachment_access(
+                self.db, storage_key=storage_key, feedback_report_id=None, expires=expires_at, sig=legacy_sig,
+            )
 
         settings.SIGNING_KEY_LEGACY_VERIFY_UNTIL = datetime.now(timezone.utc) + timedelta(minutes=5)
-        _verify_feedback_attachment_access(storage_key, expires=expires_at, sig=legacy_sig)  # must not raise
+        result = await _verify_feedback_attachment_access(
+            self.db, storage_key=storage_key, feedback_report_id=None, expires=expires_at, sig=legacy_sig,
+        )
+        self.assertEqual(result.verification_path, "legacy")
 
-    def test_past_deadline_behaves_identically_to_none_for_feedback_link(self):
+    async def test_past_deadline_behaves_identically_to_none_for_feedback_link(self):
         storage_key = "22222222-2222-2222-2222-222222222222.png"
         expires_at = int(datetime.now(timezone.utc).timestamp()) + 3600
         legacy_sig = self._legacy_signature(storage_key, expires_at)
 
         settings.SIGNING_KEY_LEGACY_VERIFY_UNTIL = datetime.now(timezone.utc) - timedelta(days=1)
-        with self.assertRaises(HTTPException) as ctx:
-            _verify_feedback_attachment_access(storage_key, expires=expires_at, sig=legacy_sig)
-        self.assertEqual(ctx.exception.status_code, 403)
+        with self.assertRaises(FeedbackAttachmentAccessDenied):
+            await _verify_feedback_attachment_access(
+                self.db, storage_key=storage_key, feedback_report_id=None, expires=expires_at, sig=legacy_sig,
+            )
 
-    def test_newly_generated_link_always_uses_new_scheme_regardless_of_setting(self):
+    async def test_newly_generated_link_always_uses_new_scheme_regardless_of_setting(self):
         storage_key = "33333333-3333-3333-3333-333333333333.png"
         expires_at = int(datetime.now(timezone.utc).timestamp()) + 3600
         for deadline in (None, datetime.now(timezone.utc) + timedelta(minutes=5)):
             settings.SIGNING_KEY_LEGACY_VERIFY_UNTIL = deadline
-            new_sig = _feedback_attachment_signature(storage_key, expires_at)
+            new_sig = _feedback_attachment_signature(
+                feedback_report_id=1, storage_key=storage_key, expires=expires_at,
+            )
             self.assertNotEqual(new_sig, self._legacy_signature(storage_key, expires_at))
 
 

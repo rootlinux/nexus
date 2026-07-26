@@ -27,6 +27,7 @@ from app.api import deps
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import _memory_rate_limiter
+from app.models.staff_permission import StaffPermission, StaffRole
 from tests.media_test_support import create_test_user
 
 SAMPLE_PNG = b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+c/aAAAAAASUVORK5CYII=")
@@ -118,18 +119,45 @@ class FeedbackReportApiTests(unittest.TestCase):
         app.dependency_overrides[get_db] = override_db
         return TestClient(app, base_url="http://localhost")
 
+    async def _create_staff_user_via_temp_engine(self, *, can_view_feedback: bool) -> int:
+        # Same fully-disposed-before-return temp-engine pattern as
+        # _create_test_user_via_temp_engine. A real row is required now:
+        # the download route's success path writes a real audit_log row via
+        # write_audit_log, and actor_user_id is a real FK to users.id.
+        temp_engine = create_async_engine(settings.DATABASE_URL)
+        try:
+            temp_session_factory = async_sessionmaker(temp_engine, expire_on_commit=False)
+            async with temp_session_factory() as session:
+                user = await create_test_user(session, username=f"staffer-{secrets.token_hex(4)}")
+                await session.flush()
+                session.add(StaffPermission(
+                    user_id=user.id, role=StaffRole.SUPER_ADMIN, can_view_feedback=can_view_feedback,
+                ))
+                await session.commit()
+                return user.id
+        finally:
+            await temp_engine.dispose()
+
     def _override_admin_session(self) -> None:
-        async def override_admin():
+        # Round 2 Task 7: the attachment-download route no longer depends on
+        # require_admin_session — it depends on require_feedback_read_with_audit,
+        # a real dependency wrapper around enforce_staff_capability(FEEDBACK_READ).
+        # Overriding get_current_user with a staff user whose can_view_feedback
+        # is True lets that real capability check actually run and pass,
+        # rather than bypassing the dependency entirely.
+        staff_user_id = asyncio.run(self._create_staff_user_via_temp_engine(can_view_feedback=True))
+
+        async def override_staff_user():
             return SimpleNamespace(
-                id=7,
+                id=staff_user_id,
                 username="staffer",
                 email="staffer@example.com",
                 status=None,
                 is_active=True,
-                staff_permission=SimpleNamespace(role="super_admin"),
+                staff_permission=SimpleNamespace(role=StaffRole.SUPER_ADMIN, can_view_feedback=True),
             )
 
-        app.dependency_overrides[deps.require_admin_session] = override_admin
+        app.dependency_overrides[deps.get_current_user] = override_staff_user
 
     def test_feedback_report_sends_structured_email(self):
         with TemporaryDirectory() as temp_dir:
@@ -195,7 +223,7 @@ class FeedbackReportApiTests(unittest.TestCase):
             self.assertIn("Attachment: Included", payload)
             self.assertIn("Attachment filename: frozen-feed.png", payload)
             self.assertIn("Attachment content type: image/png", payload)
-            self.assertIn("Attachment URL: http://localhost/api/feedback/attachments/", payload)
+            self.assertIn(f"Attachment URL: {settings.API_PUBLIC_BASE_URL}/api/feedback/attachments/", payload)
 
             attachment_url = next(
                 line.split("Attachment URL: ", 1)[1]
@@ -204,6 +232,14 @@ class FeedbackReportApiTests(unittest.TestCase):
             )
             direct_path = urlparse(attachment_url).path
 
+            # Round 2 Task 7: the download route now depends on the SAME
+            # get_current_user dependency _client() already overrode for the
+            # reporting user ("lukey") — that override is still globally
+            # active on `app` at this point. Clear it here so this request
+            # genuinely exercises the real Bearer-auth dependency
+            # (unauthenticated), instead of silently resolving to "lukey"
+            # (who would then just fail the capability check with a 403).
+            del app.dependency_overrides[deps.get_current_user]
             unsigned_response = client.get(direct_path)
             self.assertEqual(unsigned_response.status_code, 401)
             self.assertEqual(unsigned_response.json(), {"detail": "Not authenticated"})
@@ -253,7 +289,7 @@ class FeedbackReportApiTests(unittest.TestCase):
             with patch("app.api.routes.feedback.enforce_rate_limits", new=AsyncMock()):
                 signed_response = client.get(tampered_url)
             self.assertEqual(signed_response.status_code, 403)
-            self.assertEqual(signed_response.json(), {"detail": "Invalid attachment signature"})
+            self.assertEqual(signed_response.json(), {"detail": "Invalid or expired attachment link."})
 
     def test_feedback_report_rejects_invalid_attachment_type(self):
         with patch("app.core.rate_limit._hit_redis_limit", new=AsyncMock(side_effect=RedisError("down"))):

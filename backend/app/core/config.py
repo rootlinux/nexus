@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     REFRESH_COOKIE_SECURE: Optional[bool] = None
     REFRESH_COOKIE_DOMAIN: Optional[str] = None
     WEB_BASE_URL: str = "http://localhost:3000"
+    # Explicit, operator-configured base URL used ONLY for generating
+    # feedback-attachment links — never derived from request.base_url /
+    # Host header, which is attacker-influenceable. Production must set a
+    # real https:// host (validated at boot below).
+    API_PUBLIC_BASE_URL: str = "http://localhost:8000"
     EMAIL_VERIFICATION_TOKEN_TTL_MINUTES: int = 30
     PASSWORD_RESET_TOKEN_TTL_MINUTES: int = 30
     ENABLE_BOOTSTRAP_ADMIN: bool = False
@@ -428,6 +433,24 @@ class Settings(BaseSettings):
 
         if self.TRUST_PROXY_HEADERS and not self.TRUSTED_PROXY_CIDRS:
             raise ValueError("TRUSTED_PROXY_CIDRS must be set when TRUST_PROXY_HEADERS is enabled")
+
+        parsed_api_public_base_url = urlparse(self.API_PUBLIC_BASE_URL.strip())
+        api_public_base_host = (
+            parsed_api_public_base_url.hostname.lower() if parsed_api_public_base_url.hostname else ""
+        )
+        if (
+            parsed_api_public_base_url.scheme != "https"
+            or not api_public_base_host
+            or api_public_base_host in {"localhost", "127.0.0.1", "0.0.0.0", "localtest.me"}
+            or api_public_base_host.endswith(".local")
+            or api_public_base_host.endswith(".localtest.me")
+            or parsed_api_public_base_url.path not in ("", "/")
+            or parsed_api_public_base_url.query
+        ):
+            raise ValueError(
+                "API_PUBLIC_BASE_URL must be an https production host with no path or "
+                "query component in production"
+            )
 
         if self.REFRESH_COOKIE_SECURE is False:
             raise ValueError("REFRESH_COOKIE_SECURE cannot be disabled in production")

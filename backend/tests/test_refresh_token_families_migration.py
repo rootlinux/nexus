@@ -34,7 +34,16 @@ class RefreshTokenFamiliesMigrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_upgrade_backfills_legacy_families_downgrade_removes_everything(self):
         engine = create_async_engine(settings.DATABASE_URL)
 
-        _run_alembic("downgrade", "-1")  # back to 039: no token_family_id column, no anchor table
+        # Explicit target revisions, not relative "-1"/"head" — this test
+        # checks 040's own table/columns in isolation and must stay correct
+        # regardless of how many later migrations (e.g. 041) get stacked on
+        # top; a relative "-1" only undoes whatever the CURRENT head happens
+        # to be, which silently stopped undoing 040 once 041 was added
+        # (confirmed via a real failure: a prior run of this test, cut short
+        # mid-cycle by an unrelated timeout, left the disposable DB stuck at
+        # 040 with 041's column missing, breaking every other test in the
+        # same run until `alembic upgrade head` was run manually to recover).
+        _run_alembic("downgrade", "039_media_assets_and_feedback_reports")  # back to 039: no token_family_id column, no anchor table
 
         username = f"legacy-migration-{secrets.token_hex(4)}"
         async with engine.begin() as conn:
@@ -89,7 +98,7 @@ class RefreshTokenFamiliesMigrationTests(unittest.IsolatedAsyncioTestCase):
             await conn.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": user_id})
             await conn.commit()
 
-        _run_alembic("downgrade", "-1")
+        _run_alembic("downgrade", "039_media_assets_and_feedback_reports")
 
         async with engine.connect() as conn:
             table_names = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
