@@ -25,6 +25,7 @@ from app.models.password_reset_token import PasswordResetToken
 from app.models.refresh_token import RefreshToken
 from app.models.user import User, UserStatus
 from app.models.webauthn_credential import WebAuthnCredential
+from app.core.signing_keys import SigningPurpose
 from app.services.account_security import hash_account_secret
 from app.services.admin_security import hash_admin_password_reset_secret
 
@@ -149,7 +150,12 @@ class FakeAccountSecurityDB:
         if entity is EmailVerificationToken:
             token_hash = next((value for key, value in params.items() if "token_hash" in key), None)
             if token_hash is not None:
-                token = next((item for item in self.verification_tokens if item.token_hash == token_hash), None)
+                # find_account_secret_token queries via .in_([...]) now (to
+                # also check a legacy hash when enabled) — SQLAlchemy compiles
+                # that to a single param whose VALUE is the whole candidate
+                # list (an "expanding" bindparam), not one param per value.
+                candidates = token_hash if isinstance(token_hash, list) else [token_hash]
+                token = next((item for item in self.verification_tokens if item.token_hash in candidates), None)
                 return _ScalarResult(token)
 
             user_id = next((value for key, value in params.items() if "user_id" in key), None)
@@ -163,7 +169,8 @@ class FakeAccountSecurityDB:
         if entity is PasswordResetToken:
             token_hash = next((value for key, value in params.items() if "token_hash" in key), None)
             if token_hash is not None:
-                token = next((item for item in self.password_reset_tokens if item.token_hash == token_hash), None)
+                candidates = token_hash if isinstance(token_hash, list) else [token_hash]
+                token = next((item for item in self.password_reset_tokens if item.token_hash in candidates), None)
                 return _ScalarResult(token)
 
             user_id = next((value for key, value in params.items() if "user_id" in key), None)
@@ -204,6 +211,10 @@ class FakeAccountSecurityDB:
             return _ScalarResult(None)
 
         raise AssertionError(f"Unexpected entity {entity}")
+
+    async def scalar(self, statement):
+        result = await self.execute(statement)
+        return result.scalar()
 
     def add(self, instance):
         if isinstance(instance, User):
@@ -360,7 +371,7 @@ class AccountSecurityPhase4Tests(unittest.TestCase):
                 id=1,
                 user_id=user.id,
                 email=user.email,
-                token_hash=hash_account_secret(raw_secret),
+                token_hash=hash_account_secret(raw_secret, purpose=SigningPurpose.EMAIL_VERIFICATION),
                 expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
             )
         )
@@ -385,7 +396,7 @@ class AccountSecurityPhase4Tests(unittest.TestCase):
                 id=2,
                 user_id=user.id,
                 email=user.email,
-                token_hash=hash_account_secret(raw_secret),
+                token_hash=hash_account_secret(raw_secret, purpose=SigningPurpose.EMAIL_VERIFICATION),
                 expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
             )
         )
@@ -424,7 +435,7 @@ class AccountSecurityPhase4Tests(unittest.TestCase):
                 id=1,
                 user_id=user.id,
                 email=user.email,
-                token_hash=hash_account_secret(raw_secret),
+                token_hash=hash_account_secret(raw_secret, purpose=SigningPurpose.PASSWORD_RESET),
                 expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
             )
         )
@@ -538,7 +549,7 @@ class AccountSecurityPhase4Tests(unittest.TestCase):
                 id=20,
                 user_id=user.id,
                 email=user.email,
-                token_hash=hash_account_secret(public_secret),
+                token_hash=hash_account_secret(public_secret, purpose=SigningPurpose.PASSWORD_RESET),
                 expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
             )
         )

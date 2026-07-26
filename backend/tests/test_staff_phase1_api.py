@@ -429,8 +429,8 @@ class StaffPhase1ApiTests(unittest.TestCase):
         client = self._build_db_only_client(db)
 
         with patch(
-            "app.api.deps.jwt.decode",
-            return_value={"sub": "55", "sid": str(FakePhase1DB.SESSION_ID), "username": "legacy-only", "admin_role": "super_admin", "exp": 9999999999},
+            "app.core.signing_keys.jwt.decode",
+            return_value={"purpose": "jwt_access_token", "sub": "55", "sid": str(FakePhase1DB.SESSION_ID), "username": "legacy-only", "admin_role": "super_admin", "exp": 9999999999},
         ):
             response = client.get("/api/admin/search?q=ab", headers={"Authorization": "Bearer legacy-token"})
 
@@ -443,8 +443,8 @@ class StaffPhase1ApiTests(unittest.TestCase):
         client = self._build_db_only_client(db)
 
         with patch(
-            "app.api.deps.jwt.decode",
-            return_value={"sub": "66", "username": "crafted-claims", "admin_role": "super_admin", "exp": 9999999999},
+            "app.core.signing_keys.jwt.decode",
+            return_value={"purpose": "jwt_access_token", "sub": "66", "username": "crafted-claims", "admin_role": "super_admin", "exp": 9999999999},
         ):
             response = client.get("/api/auth/me", headers={"Authorization": "Bearer crafted-token"})
 
@@ -459,8 +459,8 @@ class StaffPhase1ApiTests(unittest.TestCase):
         client = self._build_db_only_client(db)
 
         with patch(
-            "app.api.deps.jwt.decode",
-            return_value={"sub": "67", "username": "staff67", "admin_role": None, "exp": 9999999999},
+            "app.core.signing_keys.jwt.decode",
+            return_value={"purpose": "jwt_access_token", "sub": "67", "username": "staff67", "admin_role": None, "exp": 9999999999},
         ):
             response = client.get("/api/auth/me", headers={"Authorization": "Bearer derived-token"})
 

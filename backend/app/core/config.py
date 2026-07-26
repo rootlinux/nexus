@@ -1,6 +1,7 @@
 import ipaddress
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 from urllib.parse import urlparse
 
@@ -81,6 +82,14 @@ class Settings(BaseSettings):
     # Auth
     SECRET_KEY: str
     ALGORITHM: Literal["HS256"] = "HS256"
+    # None (default): raw-SECRET_KEY verification of JWTs/HMAC links is
+    # completely disabled — a fresh install has no pre-existing tokens signed
+    # under the old scheme and must not be forced into a transition it
+    # doesn't need. A deployment that DOES have outstanding old-scheme
+    # tokens/links at the moment this ships must set this to a future UTC
+    # timestamp for the duration of the transition. A past timestamp behaves
+    # identically to None. See app/core/signing_keys.py.
+    SIGNING_KEY_LEGACY_VERIFY_UNTIL: datetime | None = None
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     REFRESH_COOKIE_NAME: str = "x_refresh_token"
@@ -264,6 +273,28 @@ class Settings(BaseSettings):
                 return False
             raise ValueError("REFRESH_COOKIE_SECURE must be a boolean value")
         return value
+
+    @model_validator(mode="after")
+    def validate_signing_key_legacy_verify_until(self) -> "Settings":
+        deadline = self.SIGNING_KEY_LEGACY_VERIFY_UNTIL
+        if deadline is None:
+            return self
+        if deadline.tzinfo is None:
+            raise ValueError(
+                "SIGNING_KEY_LEGACY_VERIFY_UNTIL must be a timezone-aware UTC datetime "
+                "(e.g. '2026-08-15T00:00:00+00:00'), not a naive one"
+            )
+        # A future deadline means legacy-signed tokens/links are ACTIVELY
+        # being accepted right now — surface that loudly. A past deadline is
+        # already inert (identical to None / disabled), so there's nothing to
+        # warn about.
+        if datetime.now(timezone.utc) < deadline:
+            _config_logger.warning(
+                "Legacy signing-key fallback is active until %s — remove "
+                "SIGNING_KEY_LEGACY_VERIFY_UNTIL once this deadline passes.",
+                deadline.isoformat(),
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":

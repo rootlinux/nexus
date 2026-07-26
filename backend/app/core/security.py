@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import secrets
 from app.core.config import settings
+from app.core.signing_keys import SigningPurpose, decode_jwt_with_fallback, derive_purpose_key
 
 _MFA_PENDING_PREFIX = "mfa_pending:"
 _ADMIN_WEBAUTHN_RECOVERY_PENDING_PREFIX = "admin_webauthn_recovery:"
@@ -38,20 +39,20 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         Encoded JWT token string
     """
     to_encode = data.copy()
-    
+
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    to_encode.update({"exp": expire})
-    
+
+    to_encode.update({"exp": expire, "purpose": SigningPurpose.JWT_ACCESS.value})
+
     encoded_jwt = jwt.encode(
         to_encode,
-        settings.SECRET_KEY,
+        derive_purpose_key(SigningPurpose.JWT_ACCESS),
         algorithm=settings.ALGORITHM
     )
-    
+
     return encoded_jwt
 
 
@@ -172,8 +173,8 @@ async def create_mfa_session_token(
     ttl_seconds = max(1, int(timedelta(minutes=ttl_minutes).total_seconds()))
     await _set_mfa_pending_state(jti, user_id, ttl_seconds)
     return jwt.encode(
-        {"sub": str(user_id), "purpose": "webauthn_mfa", "jti": jti, "exp": expire},
-        settings.SECRET_KEY,
+        {"sub": str(user_id), "purpose": SigningPurpose.MFA_SESSION.value, "jti": jti, "exp": expire},
+        derive_purpose_key(SigningPurpose.MFA_SESSION),
         algorithm=settings.ALGORITHM,
     )
 
@@ -184,10 +185,10 @@ def decode_mfa_session_token(token: str) -> dict[str, int | str]:
     Raises ValueError on any invalid token so callers can convert to HTTPException.
     """
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload, _verification_path = decode_jwt_with_fallback(token, SigningPurpose.MFA_SESSION)
     except JWTError as exc:
         raise ValueError("Invalid or expired MFA session token") from exc
-    if payload.get("purpose") != "webauthn_mfa":
+    if payload.get("purpose") != SigningPurpose.MFA_SESSION.value:
         raise ValueError("Invalid MFA session token purpose")
     try:
         user_id = int(payload["sub"])
@@ -208,18 +209,18 @@ async def create_admin_webauthn_recovery_token(
     ttl_seconds = max(1, int(timedelta(minutes=ttl_minutes).total_seconds()))
     await _set_admin_webauthn_recovery_pending_state(jti, user_id, ttl_seconds)
     return jwt.encode(
-        {"sub": str(user_id), "purpose": "admin_webauthn_recovery", "jti": jti, "exp": expire},
-        settings.SECRET_KEY,
+        {"sub": str(user_id), "purpose": SigningPurpose.ADMIN_WEBAUTHN_RECOVERY.value, "jti": jti, "exp": expire},
+        derive_purpose_key(SigningPurpose.ADMIN_WEBAUTHN_RECOVERY),
         algorithm=settings.ALGORITHM,
     )
 
 
 def decode_admin_webauthn_recovery_token(token: str) -> dict[str, int | str]:
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload, _verification_path = decode_jwt_with_fallback(token, SigningPurpose.ADMIN_WEBAUTHN_RECOVERY)
     except JWTError as exc:
         raise ValueError("Invalid or expired admin WebAuthn recovery token") from exc
-    if payload.get("purpose") != "admin_webauthn_recovery":
+    if payload.get("purpose") != SigningPurpose.ADMIN_WEBAUTHN_RECOVERY.value:
         raise ValueError("Invalid admin WebAuthn recovery token purpose")
     try:
         user_id = int(payload["sub"])

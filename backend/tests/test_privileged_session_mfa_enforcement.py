@@ -361,7 +361,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        with patch("app.api.deps.jwt.decode", return_value={"sub": "4", "username": "nonstaff", "sid": "41", "exp": 9999999999}):
+        with patch("app.core.signing_keys.jwt.decode", return_value={"purpose": "jwt_access_token", "sub": "4", "username": "nonstaff", "sid": "41", "exp": 9999999999}):
             with self.assertRaises(HTTPException) as exc_info:
                 await require_admin_session(
                     credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
@@ -396,7 +396,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        with patch("app.api.deps.jwt.decode", return_value={"sub": "5", "username": "staff-low", "sid": "51", "exp": 9999999999}):
+        with patch("app.core.signing_keys.jwt.decode", return_value={"purpose": "jwt_access_token", "sub": "5", "username": "staff-low", "sid": "51", "exp": 9999999999}):
             with self.assertRaises(HTTPException) as exc_info:
                 await require_admin_session(
                     credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
@@ -421,7 +421,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        with patch("app.api.deps.jwt.decode", return_value={"sub": "6", "username": "staff-high", "sid": "61", "exp": 9999999999}):
+        with patch("app.core.signing_keys.jwt.decode", return_value={"purpose": "jwt_access_token", "sub": "6", "username": "staff-high", "sid": "61", "exp": 9999999999}):
             result = await require_admin_session(
                 credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
                 db=self.db,
@@ -434,7 +434,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
         user.staff_permission = StaffPermission(id=166, user_id=user.id, role=StaffRole.ADMIN, can_manage_moderators=True)
         self.db.users[user.id] = user
 
-        with patch("app.api.deps.jwt.decode", return_value={"sub": "16", "username": "staff-nosession", "exp": 9999999999}):
+        with patch("app.core.signing_keys.jwt.decode", return_value={"purpose": "jwt_access_token", "sub": "16", "username": "staff-nosession", "exp": 9999999999}):
             with self.assertRaises(HTTPException) as exc_info:
                 await require_admin_session(
                     credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="recovery-token"),
@@ -479,7 +479,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.user.user_id, target_user.id)
         self.assertTrue(low_assurance_session.revoked)
 
-        with patch("app.api.deps.jwt.decode", return_value={"sub": "7", "username": "candidate", "sid": "71", "exp": 9999999999}):
+        with patch("app.core.signing_keys.jwt.decode", return_value={"purpose": "jwt_access_token", "sub": "7", "username": "candidate", "sid": "71", "exp": 9999999999}):
             with self.assertRaises(HTTPException) as access_exc:
                 await require_admin_session(
                     credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="old-access"),
@@ -556,8 +556,8 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
         new_session = self.db.refresh_tokens[-1]
         self.assertTrue(new_session.mfa_satisfied)
         with patch(
-            "app.api.deps.jwt.decode",
-            return_value={"sub": "7", "username": "candidate", "sid": str(new_session.id), "exp": 9999999999},
+            "app.core.signing_keys.jwt.decode",
+            return_value={"purpose": "jwt_access_token", "sub": "7", "username": "candidate", "sid": str(new_session.id), "exp": 9999999999},
         ):
             result = await require_admin_session(
                 credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="new-access"),
