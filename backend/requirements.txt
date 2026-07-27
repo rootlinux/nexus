@@ -22,7 +22,7 @@ aiocache==0.12.2
 slowapi==0.1.9
 
 # Utilities
-httpx==0.26.0
+httpx==0.28.1
 python-dotenv==1.2.2
 bcrypt==4.0.1
 zxcvbn==4.4.28
