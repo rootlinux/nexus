@@ -45,7 +45,8 @@ Dark, editorial theme — [Fraunces](https://fonts.google.com/specimen/Fraunces)
 
 - **`backend/`** — FastAPI app: routes, services, SQLAlchemy models, 39 Alembic migrations
 - **`web/`** — Next.js frontend: dark design system, feed, discover, DMs
-- **`deploy/`** — Docker Compose, Caddy configs, DB init scripts
+- **`deploy/`** — Docker Compose, Caddy configs, DB init scripts (see the
+  [production migration & rollback runbook](deploy/RUNBOOK.md))
 - **`.github/workflows/`** — CI with live PostgreSQL + Redis services
 
 ## Security Features
