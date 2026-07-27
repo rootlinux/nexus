@@ -19,7 +19,7 @@ redis==5.0.1
 aiocache==0.12.2
 
 # Rate Limiting
-slowapi==0.1.9
+slowapi==0.1.10
 
 # Utilities
 httpx==0.26.0
