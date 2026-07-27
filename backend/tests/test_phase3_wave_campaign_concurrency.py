@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import os
 import secrets
 import subprocess
@@ -7,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
+from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 import httpx
@@ -31,11 +33,51 @@ from app.services.invite_campaigns import CampaignRuleViolation, create_campaign
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _is_loopback_host(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _resolve_disposable_pg_target() -> dict[str, str]:
+    """Derive the throwaway-database host/port/credentials from this run's own
+    configured DATABASE_URL, instead of hardcoding localhost:5432 — a fixed port
+    would either miss a disposable Postgres mapped to a non-default port (as CI
+    and local verification both may use) or, worse, silently create/drop random
+    databases against an unrelated Postgres instance that happens to be listening
+    on 5432. The host is required to be loopback: this suite creates and drops
+    databases and must never be pointed at a real or remote server."""
+    base_url = os.environ.get(
+        "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/xplatform"
+    )
+    parsed = urlsplit(base_url)
+    host = parsed.hostname or "localhost"
+    if not _is_loopback_host(host):
+        raise RuntimeError(
+            f"refusing to run wave-campaign concurrency tests against non-loopback "
+            f"DATABASE_URL host {host!r}: this suite provisions and drops disposable "
+            "databases and must only ever target a loopback Postgres instance."
+        )
+    return {
+        "host": host,
+        "port": str(parsed.port or 5432),
+        "user": unquote(parsed.username) if parsed.username else "postgres",
+        "password": unquote(parsed.password) if parsed.password else "postgres",
+    }
+
+
 class Phase3WaveCampaignConcurrencyTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.prefix = f"phase3c_{uuid4().hex[:8]}"
         self.db_name = f"{self.prefix}_db"
-        self.database_url = f"postgresql+asyncpg://postgres:postgres@localhost:5432/{self.db_name}"
+        self._pg_target = _resolve_disposable_pg_target()
+        self.database_url = (
+            f"postgresql+asyncpg://{self._pg_target['user']}:{self._pg_target['password']}"
+            f"@{self._pg_target['host']}:{self._pg_target['port']}/{self.db_name}"
+        )
         self._provision_database()
         self.engine = create_async_engine(
             self.database_url,
@@ -100,12 +142,13 @@ class Phase3WaveCampaignConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         # dropdb/createdb use libpq's default connection method (a local Unix socket)
         # unless told otherwise, which doesn't exist when Postgres is only reachable
         # over TCP (Docker Compose / CI service containers). Point them at the same
-        # host/port/user/password this file's own DATABASE_URLs already use.
+        # host/port/user/password resolved from this run's own DATABASE_URL, not a
+        # hardcoded default — see _resolve_disposable_pg_target.
         env = dict(os.environ)
-        env.setdefault("PGHOST", "localhost")
-        env.setdefault("PGPORT", "5432")
-        env.setdefault("PGUSER", "postgres")
-        env.setdefault("PGPASSWORD", "postgres")
+        env["PGHOST"] = self._pg_target["host"]
+        env["PGPORT"] = self._pg_target["port"]
+        env["PGUSER"] = self._pg_target["user"]
+        env["PGPASSWORD"] = self._pg_target["password"]
         result = subprocess.run(command, env=env, capture_output=True, text=True)
         if result.returncode != 0:
             self.fail(
