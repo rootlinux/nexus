@@ -45,11 +45,16 @@ Dark, editorial theme — [Fraunces](https://fonts.google.com/specimen/Fraunces)
 
 - **`backend/`** — FastAPI app: routes, services, SQLAlchemy models, 39 Alembic migrations
 - **`web/`** — Next.js frontend: dark design system, feed, discover, DMs
+- **`nexus-mcp/`** — read-only [MCP](https://modelcontextprotocol.io) server for admin
+  querying (see [its security model](nexus-mcp/README.md))
 - **`deploy/`** — Docker Compose, Caddy configs, DB init scripts (see the
   [production migration & rollback runbook](deploy/RUNBOOK.md))
 - **`.github/workflows/`** — CI with live PostgreSQL + Redis services
 
 ## Security Features
+
+Found a vulnerability? See [SECURITY.md](SECURITY.md) for how to report it —
+please don't open a public issue.
 
 This is where most of the engineering effort went:
 
@@ -104,6 +109,13 @@ cp deploy/.env.local-smoke.example deploy/.env
 # 3. Reset DB + restart from scratch
 ./deploy/scripts/docker-reset-and-start.sh
 ```
+
+`.env.example` files exist for [`backend/`](backend/.env.example),
+[`web/`](web/.env.example), [`nexus-mcp/`](nexus-mcp/.env.example), and the
+[Docker smoke stack](deploy/.env.local-smoke.example). **Every value in
+these files is a placeholder** — generate your own secrets and never deploy
+with an example value still in place (production startup rejects known
+placeholder `SECRET_KEY` values, but treat that as a backstop, not a plan).
 
 ## Invite-Only Registration (Local Testing)
 
