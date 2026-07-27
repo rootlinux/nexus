@@ -214,7 +214,7 @@ def sanitize_invite_quota_monthly(value: int | None) -> int | None:
         return None
     if value < 0 or value > MAX_INVITE_QUOTA_MONTHLY:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"invite_quota_monthly must be between 0 and {MAX_INVITE_QUOTA_MONTHLY}",
         )
     return value
