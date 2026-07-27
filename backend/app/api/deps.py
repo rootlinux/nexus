@@ -5,10 +5,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-import jwt
 from jwt import PyJWTError as JWTError
 from app.core.authorization import user_has_capability
-from app.core.config import settings
 from app.core.database import get_db
 from app.core.signing_keys import SigningPurpose, decode_jwt_with_fallback
 from app.models.refresh_token import RefreshToken
