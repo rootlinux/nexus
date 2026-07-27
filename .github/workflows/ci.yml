@@ -5,6 +5,12 @@ on:
   pull_request:
     branches: [main]
 
+# Least-privilege default for the GITHUB_TOKEN: none of these jobs push commits,
+# comment on PRs, or publish packages — they only need to read the repo to check
+# it out, install dependencies, and run tests/builds.
+permissions:
+  contents: read
+
 env:
   # Kept in sync with the Node version pinned in web/Dockerfile.
   NODE_LTS_VERSION: '22'
