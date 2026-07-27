@@ -30,6 +30,6 @@ Pillow==12.3.0
 cryptography==48.0.1
 greenlet==3.2.1
 webauthn==2.1.0
-pytest==8.3.5
+pytest==9.0.3
 resend>=2.0.0
 pywebpush==2.0.3
