@@ -76,7 +76,7 @@ def _staff_assignment_to_response(staff_permission: StaffPermission, actor: User
 async def _get_user_by_identifier(db: AsyncSession, payload: StaffAssignmentCreate) -> User:
     if payload.user_id is None and payload.username is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Either user_id or username is required",
         )
 
