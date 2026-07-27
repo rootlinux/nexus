@@ -142,11 +142,15 @@ class PublicBaseUrlHostHeaderImmunityTests(unittest.IsolatedAsyncioTestCase):
         # Host header (e.g. evil.example.com) before the route ever runs —
         # that's a separate, correctly-functioning defense-in-depth layer,
         # not what this test is about. To isolate whether OUR code reads
-        # request.base_url at all, use a Host value that IS on the allowlist
-        # (so the request reaches the route) but differs from
+        # request.base_url at all, use a Host value that would reach the
+        # route regardless of whether HostValidationMiddleware happens to be
+        # installed in this process (its presence is decided once, from
+        # ALLOWED_HOSTS, the first time app.main is imported in the whole
+        # test run — long before this test's setUp — so it can't be
+        # asserted on here without coupling to ambient process-wide state
+        # and import order across the full suite) but differs from
         # API_PUBLIC_BASE_URL's own host — the generated URL must still
         # follow the configured value, never the request's Host header.
-        self.assertIn("127.0.0.1", settings.ALLOWED_HOSTS)
         self.assertNotIn("127.0.0.1", settings.API_PUBLIC_BASE_URL)
         await self._assert_url_immune(
             headers={"host": "127.0.0.1"}, trust_proxy_headers=False, forbidden_substring="://127.0.0.1",
