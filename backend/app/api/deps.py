@@ -5,11 +5,10 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-import jwt
 from jwt import PyJWTError as JWTError
 from app.core.authorization import user_has_capability
-from app.core.config import settings
 from app.core.database import get_db
+from app.core.signing_keys import SigningPurpose, decode_jwt_with_fallback
 from app.models.refresh_token import RefreshToken
 from app.models.user import User, UserStatus
 from app.models.webauthn_credential import WebAuthnCredential
@@ -95,12 +94,27 @@ def _decode_access_token(token: str) -> TokenData:
     )
 
     try:
-        payload = jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM],
-            options={"require": ["exp", "sub"]}
+        payload, verification_path = decode_jwt_with_fallback(
+            token, SigningPurpose.JWT_ACCESS, options={"require": ["exp", "sub"]},
         )
+
+        purpose = payload.get("purpose")
+        if verification_path == "new":
+            # New-key-signed tokens are always minted with the exact purpose
+            # claim now — never accepted without it, no exceptions, defense
+            # in depth.
+            if purpose != SigningPurpose.JWT_ACCESS.value:
+                raise credentials_exception
+        else:
+            # Legacy path: pre-this-commit access tokens may have no purpose
+            # claim at all (grandfathered), but a *foreign* purpose — an old
+            # MFA/admin-recovery token, both of which already carried one
+            # before this commit — is still rejected. This is what closes
+            # the original token-confusion bug on the legacy path too, not
+            # just the new one.
+            if purpose is not None and purpose != SigningPurpose.JWT_ACCESS.value:
+                raise credentials_exception
+
         user_id_raw = payload.get("sub")
         username = payload.get("username")
         session_id_raw = payload.get("sid")

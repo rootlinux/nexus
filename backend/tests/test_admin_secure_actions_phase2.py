@@ -140,7 +140,11 @@ class FakeSecureAdminDB:
         if entity is PasswordResetToken:
             if any("token_hash" in key for key in params):
                 token_hash = next(value for key, value in params.items() if "token_hash" in key)
-                token = next((item for item in self.public_reset_tokens if item.token_hash == token_hash), None)
+                # find_account_secret_token queries via .in_([...]) now — SQLAlchemy
+                # compiles that to a single param whose VALUE is the whole
+                # candidate list (an "expanding" bindparam), not one param per value.
+                candidates = token_hash if isinstance(token_hash, list) else [token_hash]
+                token = next((item for item in self.public_reset_tokens if item.token_hash in candidates), None)
                 return _ScalarResult(token)
 
             user_id = next((value for key, value in params.items() if "user_id" in key), None)
@@ -172,6 +176,10 @@ class FakeSecureAdminDB:
             return _ListResult(values)
 
         raise AssertionError(f"Unexpected entity {entity}")
+
+    async def scalar(self, statement):
+        result = await self.execute(statement)
+        return result.scalar()
 
     async def _execute_update(self, statement):
         from datetime import datetime, timezone

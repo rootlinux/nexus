@@ -1,6 +1,7 @@
 import ipaddress
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 from urllib.parse import urlparse
 
@@ -81,6 +82,14 @@ class Settings(BaseSettings):
     # Auth
     SECRET_KEY: str
     ALGORITHM: Literal["HS256"] = "HS256"
+    # None (default): raw-SECRET_KEY verification of JWTs/HMAC links is
+    # completely disabled — a fresh install has no pre-existing tokens signed
+    # under the old scheme and must not be forced into a transition it
+    # doesn't need. A deployment that DOES have outstanding old-scheme
+    # tokens/links at the moment this ships must set this to a future UTC
+    # timestamp for the duration of the transition. A past timestamp behaves
+    # identically to None. See app/core/signing_keys.py.
+    SIGNING_KEY_LEGACY_VERIFY_UNTIL: datetime | None = None
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     REFRESH_COOKIE_NAME: str = "x_refresh_token"
@@ -88,6 +97,11 @@ class Settings(BaseSettings):
     REFRESH_COOKIE_SECURE: Optional[bool] = None
     REFRESH_COOKIE_DOMAIN: Optional[str] = None
     WEB_BASE_URL: str = "http://localhost:3000"
+    # Explicit, operator-configured base URL used ONLY for generating
+    # feedback-attachment links — never derived from request.base_url /
+    # Host header, which is attacker-influenceable. Production must set a
+    # real https:// host (validated at boot below).
+    API_PUBLIC_BASE_URL: str = "http://localhost:8000"
     EMAIL_VERIFICATION_TOKEN_TTL_MINUTES: int = 30
     PASSWORD_RESET_TOKEN_TTL_MINUTES: int = 30
     ENABLE_BOOTSTRAP_ADMIN: bool = False
@@ -146,6 +160,27 @@ class Settings(BaseSettings):
     S3_PUBLIC_BASE_URL: Optional[str] = None
     S3_ACCESS_KEY_ID: Optional[str] = None
     S3_SECRET_ACCESS_KEY: Optional[str] = None
+
+    # Upload limits (Round 2, Task 1)
+    AVATAR_UPLOAD_MAX_BYTES: int = 5 * 1024 * 1024
+    COVER_UPLOAD_MAX_BYTES: int = 8 * 1024 * 1024
+    POST_IMAGE_UPLOAD_MAX_BYTES: int = 5 * 1024 * 1024
+    UPLOAD_GUARD_OVERHEAD_BYTES: int = 256 * 1024
+    PNG_DECOMPRESS_SLACK_BYTES: int = 4 * 1024
+    PNG_MAX_COMPRESSED_INPUT_BYTES: int = 8 * 1024 * 1024
+
+    # Image metadata stripping (Round 2, Task 2)
+    IMAGE_PRESERVE_ICC_PROFILE: bool = False
+    IMAGE_REENCODE_JPEG_QUALITY: int = 91
+    IMAGE_REENCODE_WEBP_QUALITY: int = 90
+
+    # Media ownership/quota (Round 2, Task 3). Lifetime limits (files/bytes) are
+    # tracked only, not enforced — see reserve_upload_quota's docstring for why.
+    # Initial operational proposals, not measured against real usage.
+    MEDIA_MAX_FILES_PER_USER: int = 500
+    MEDIA_MAX_TOTAL_BYTES_PER_USER: int = 250 * 1024 * 1024
+    MEDIA_MAX_DAILY_UPLOAD_BYTES_PER_USER: int = 50 * 1024 * 1024  # enforced
+    MEDIA_PENDING_EXPIRATION_HOURS: int = 24
 
     # Mail
     MAIL_PROVIDER: str = "capture"
@@ -243,6 +278,28 @@ class Settings(BaseSettings):
                 return False
             raise ValueError("REFRESH_COOKIE_SECURE must be a boolean value")
         return value
+
+    @model_validator(mode="after")
+    def validate_signing_key_legacy_verify_until(self) -> "Settings":
+        deadline = self.SIGNING_KEY_LEGACY_VERIFY_UNTIL
+        if deadline is None:
+            return self
+        if deadline.tzinfo is None:
+            raise ValueError(
+                "SIGNING_KEY_LEGACY_VERIFY_UNTIL must be a timezone-aware UTC datetime "
+                "(e.g. '2026-08-15T00:00:00+00:00'), not a naive one"
+            )
+        # A future deadline means legacy-signed tokens/links are ACTIVELY
+        # being accepted right now — surface that loudly. A past deadline is
+        # already inert (identical to None / disabled), so there's nothing to
+        # warn about.
+        if datetime.now(timezone.utc) < deadline:
+            _config_logger.warning(
+                "Legacy signing-key fallback is active until %s — remove "
+                "SIGNING_KEY_LEGACY_VERIFY_UNTIL once this deadline passes.",
+                deadline.isoformat(),
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":
@@ -376,6 +433,24 @@ class Settings(BaseSettings):
 
         if self.TRUST_PROXY_HEADERS and not self.TRUSTED_PROXY_CIDRS:
             raise ValueError("TRUSTED_PROXY_CIDRS must be set when TRUST_PROXY_HEADERS is enabled")
+
+        parsed_api_public_base_url = urlparse(self.API_PUBLIC_BASE_URL.strip())
+        api_public_base_host = (
+            parsed_api_public_base_url.hostname.lower() if parsed_api_public_base_url.hostname else ""
+        )
+        if (
+            parsed_api_public_base_url.scheme != "https"
+            or not api_public_base_host
+            or api_public_base_host in {"localhost", "127.0.0.1", "0.0.0.0", "localtest.me"}
+            or api_public_base_host.endswith(".local")
+            or api_public_base_host.endswith(".localtest.me")
+            or parsed_api_public_base_url.path not in ("", "/")
+            or parsed_api_public_base_url.query
+        ):
+            raise ValueError(
+                "API_PUBLIC_BASE_URL must be an https production host with no path or "
+                "query component in production"
+            )
 
         if self.REFRESH_COOKIE_SECURE is False:
             raise ValueError("REFRESH_COOKIE_SECURE cannot be disabled in production")

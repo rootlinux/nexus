@@ -26,6 +26,7 @@ STAFF_PERMISSION_FIELDS = (
     "can_reset_passwords",
     "can_revoke_sessions",
     "can_create_wave_campaigns",
+    "can_view_feedback",
 )
 
 PHASE1_EDITABLE_PERMISSION_FIELDS = (
@@ -60,6 +61,7 @@ ROLE_DEFAULTS: dict[StaffRole, dict[str, Any]] = {
         "can_reset_passwords": False,
         "can_revoke_sessions": False,
         "can_create_wave_campaigns": False,
+        "can_view_feedback": True,
     },
     StaffRole.ADMIN: {
         "can_create_invites": True,
@@ -74,6 +76,7 @@ ROLE_DEFAULTS: dict[StaffRole, dict[str, Any]] = {
         "can_reset_passwords": False,
         "can_revoke_sessions": False,
         "can_create_wave_campaigns": False,
+        "can_view_feedback": True,
     },
     StaffRole.MODERATOR: {
         "can_create_invites": False,
@@ -88,6 +91,7 @@ ROLE_DEFAULTS: dict[StaffRole, dict[str, Any]] = {
         "can_reset_passwords": False,
         "can_revoke_sessions": False,
         "can_create_wave_campaigns": False,
+        "can_view_feedback": False,
     },
 }
 
@@ -116,6 +120,7 @@ CAPABILITY_TO_STAFF_FIELD: dict[str, str | tuple[str, ...] | None] = {
     Capability.AUDIT_READ: None,
     Capability.WAITLIST_READ: None,
     Capability.WAITLIST_MANAGE: None,
+    Capability.FEEDBACK_READ: "can_view_feedback",
 }
 
 
@@ -234,6 +239,7 @@ def serialize_staff_permissions(staff_permission: StaffPermission | SimpleNamesp
         "can_reset_passwords": bool(getattr(staff_permission, "can_reset_passwords", False)),
         "can_revoke_sessions": bool(getattr(staff_permission, "can_revoke_sessions", False)),
         "can_create_wave_campaigns": bool(getattr(staff_permission, "can_create_wave_campaigns", False)),
+        "can_view_feedback": bool(getattr(staff_permission, "can_view_feedback", False)),
     }
 
 

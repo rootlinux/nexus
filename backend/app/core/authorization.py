@@ -35,6 +35,7 @@ class Capability:
     AUDIT_READ = "audit.read"
     WAITLIST_READ = "waitlist.read"
     WAITLIST_MANAGE = "waitlist.manage"
+    FEEDBACK_READ = "feedback.read"
 def user_has_capability(user, capability: str) -> bool:
     from app.services.staff_permissions import staff_has_capability
 

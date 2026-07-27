@@ -45,6 +45,7 @@ class MailConfigTests(unittest.TestCase):
                 "MAIL_FROM_NAME": "Example App",
                 "WEB_BASE_URL": "https://app.example.com",
                 "ADMIN_SERVICE_TOKEN": secrets.token_hex(32),
+                "API_PUBLIC_BASE_URL": "https://api.example.com",
             }
         )
         env.update(overrides)

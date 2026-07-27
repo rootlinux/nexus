@@ -22,6 +22,7 @@ class RedisTlsPolicyTests(unittest.TestCase):
                 "CORS_ALLOWED_ORIGINS": "https://app.example.com",
                 "MAIL_PROVIDER": "capture",
                 "WEB_BASE_URL": "https://app.example.com",
+                "API_PUBLIC_BASE_URL": "https://api.example.com",
             }
         )
         env.pop("REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK", None)
