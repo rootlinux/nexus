@@ -1,6 +1,7 @@
 import os
 import secrets
 import subprocess
+import sys
 import unittest
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/xdb")
@@ -16,8 +17,12 @@ BACKEND_DIR = __import__("pathlib").Path(__file__).resolve().parents[1]
 
 
 def _run_alembic(*args: str) -> None:
+    # sys.executable, not a bare "python" — the latter isn't guaranteed to be on
+    # PATH (e.g. macOS/Homebrew installs that only provide python3), so this
+    # subprocess call could raise FileNotFoundError before any alembic command
+    # ever ran, unrelated to the migration logic under test.
     result = subprocess.run(
-        ["python", "-m", "alembic", *args],
+        [sys.executable, "-m", "alembic", *args],
         cwd=str(BACKEND_DIR), env={**os.environ}, capture_output=True, text=True,
     )
     assert result.returncode == 0, f"alembic {args} failed:\n{result.stdout}\n{result.stderr}"
