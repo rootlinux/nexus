@@ -31,5 +31,5 @@ cryptography==48.0.1
 greenlet==3.2.1
 webauthn==2.1.0
 pytest==9.0.3
-resend>=2.0.0
+resend>=2.35.0
 pywebpush==2.0.3
