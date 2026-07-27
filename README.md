@@ -1,5 +1,7 @@
 # Nexus
 
+<img src="nexus-banner.svg" alt="" width="100%" />
+
 Invite-only social platform built with a security-first mindset. FastAPI backend, Next.js frontend, fully containerized deployment.
 
 > Built as a deep-dive into authentication, session management, and platform hardening — the defensive side of the skills I'm building toward offensive security work.
