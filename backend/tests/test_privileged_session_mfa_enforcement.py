@@ -20,6 +20,7 @@ from app.api.routes.auth import refresh_token
 from app.api.routes.webauthn import webauthn_auth_complete
 from app.main import app
 from app.models.refresh_token import RefreshToken
+from app.models.refresh_token_family import RefreshTokenFamily
 from app.models.staff_permission import StaffPermission, StaffRole
 from app.models.user import User, UserStatus
 from app.models.webauthn_credential import WebAuthnCredential
@@ -122,10 +123,18 @@ class SecurityClosureDB:
             cred = next((item for item in self.webauthn_credentials if item.user_id == user_id), None)
             return _ScalarResult(cred)
 
+        if entity is RefreshTokenFamily:
+            # lock_token_family's result is never read by the caller — this
+            # synchronous, single-threaded fake has no real concurrency to
+            # serialize against, so a harmless dummy is sufficient.
+            return _ScalarResult(None)
+
         if entity is RefreshToken:
             if "where refresh_tokens.token_hash =" in statement_text_lower:
                 token_hash = next((value for value in params.values() if isinstance(value, str)), None)
                 token = next((item for item in self.refresh_tokens if item.token_hash == token_hash), None)
+                if statement_text_lower.startswith("select refresh_tokens.token_family_id "):
+                    return _ScalarResult(token.token_family_id if token else None)
                 return _ScalarResult(token)
             if "where refresh_tokens.id =" in statement_text_lower:
                 token_id = _first_int_param()
@@ -150,6 +159,10 @@ class SecurityClosureDB:
                 return _ListResult(values)
 
         raise AssertionError(f"Unexpected entity {entity}")
+
+    async def scalar(self, statement):
+        result = await self.execute(statement)
+        return result.scalar()
 
     def add(self, instance):
         if isinstance(instance, RefreshToken):
@@ -302,6 +315,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
             id=10,
             user_id=user.id,
             token_hash="hashed-old-refresh",
+            token_family_id="family-10",
             expires_at=datetime.now(timezone.utc) + timedelta(days=7),
             revoked=False,
             mfa_satisfied=True,
@@ -347,7 +361,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        with patch("app.api.deps.jwt.decode", return_value={"sub": "4", "username": "nonstaff", "sid": "41", "exp": 9999999999}):
+        with patch("app.core.signing_keys.jwt.decode", return_value={"purpose": "jwt_access_token", "sub": "4", "username": "nonstaff", "sid": "41", "exp": 9999999999}):
             with self.assertRaises(HTTPException) as exc_info:
                 await require_admin_session(
                     credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
@@ -382,7 +396,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        with patch("app.api.deps.jwt.decode", return_value={"sub": "5", "username": "staff-low", "sid": "51", "exp": 9999999999}):
+        with patch("app.core.signing_keys.jwt.decode", return_value={"purpose": "jwt_access_token", "sub": "5", "username": "staff-low", "sid": "51", "exp": 9999999999}):
             with self.assertRaises(HTTPException) as exc_info:
                 await require_admin_session(
                     credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
@@ -407,7 +421,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        with patch("app.api.deps.jwt.decode", return_value={"sub": "6", "username": "staff-high", "sid": "61", "exp": 9999999999}):
+        with patch("app.core.signing_keys.jwt.decode", return_value={"purpose": "jwt_access_token", "sub": "6", "username": "staff-high", "sid": "61", "exp": 9999999999}):
             result = await require_admin_session(
                 credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
                 db=self.db,
@@ -420,7 +434,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
         user.staff_permission = StaffPermission(id=166, user_id=user.id, role=StaffRole.ADMIN, can_manage_moderators=True)
         self.db.users[user.id] = user
 
-        with patch("app.api.deps.jwt.decode", return_value={"sub": "16", "username": "staff-nosession", "exp": 9999999999}):
+        with patch("app.core.signing_keys.jwt.decode", return_value={"purpose": "jwt_access_token", "sub": "16", "username": "staff-nosession", "exp": 9999999999}):
             with self.assertRaises(HTTPException) as exc_info:
                 await require_admin_session(
                     credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="recovery-token"),
@@ -436,6 +450,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
             id=71,
             user_id=target_user.id,
             token_hash="hashed-old-refresh",
+            token_family_id="family-71",
             expires_at=datetime.now(timezone.utc) + timedelta(days=7),
             revoked=False,
             mfa_satisfied=False,
@@ -464,7 +479,7 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.user.user_id, target_user.id)
         self.assertTrue(low_assurance_session.revoked)
 
-        with patch("app.api.deps.jwt.decode", return_value={"sub": "7", "username": "candidate", "sid": "71", "exp": 9999999999}):
+        with patch("app.core.signing_keys.jwt.decode", return_value={"purpose": "jwt_access_token", "sub": "7", "username": "candidate", "sid": "71", "exp": 9999999999}):
             with self.assertRaises(HTTPException) as access_exc:
                 await require_admin_session(
                     credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="old-access"),
@@ -541,8 +556,8 @@ class PrivilegedSessionSecurityTests(unittest.IsolatedAsyncioTestCase):
         new_session = self.db.refresh_tokens[-1]
         self.assertTrue(new_session.mfa_satisfied)
         with patch(
-            "app.api.deps.jwt.decode",
-            return_value={"sub": "7", "username": "candidate", "sid": str(new_session.id), "exp": 9999999999},
+            "app.core.signing_keys.jwt.decode",
+            return_value={"purpose": "jwt_access_token", "sub": "7", "username": "candidate", "sid": str(new_session.id), "exp": 9999999999},
         ):
             result = await require_admin_session(
                 credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="new-access"),

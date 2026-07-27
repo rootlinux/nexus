@@ -21,6 +21,7 @@ from app.models.email_change_token import EmailChangeToken
 from app.models.password_reset_token import PasswordResetToken
 from app.models.refresh_token import RefreshToken
 from app.models.user import User, UserStatus
+from app.core.signing_keys import SigningPurpose
 from app.services.account_security import hash_account_secret
 
 
@@ -140,7 +141,11 @@ class FakePhase5DB:
             user_id = next((value for key, value in params.items() if "user_id" in key), None)
 
             if token_hash is not None:
-                token = next((item for item in self.email_change_tokens if item.token_hash == token_hash), None)
+                # find_account_secret_token queries via .in_([...]) now — SQLAlchemy
+                # compiles that to a single param whose VALUE is the whole
+                # candidate list (an "expanding" bindparam).
+                candidates = token_hash if isinstance(token_hash, list) else [token_hash]
+                token = next((item for item in self.email_change_tokens if item.token_hash in candidates), None)
                 return _ScalarResult(token)
 
             tokens = list(self.email_change_tokens)
@@ -157,7 +162,8 @@ class FakePhase5DB:
             user_id = next((value for key, value in params.items() if "user_id" in key), None)
 
             if token_hash is not None:
-                token = next((item for item in self.verification_tokens if item.token_hash == token_hash), None)
+                candidates = token_hash if isinstance(token_hash, list) else [token_hash]
+                token = next((item for item in self.verification_tokens if item.token_hash in candidates), None)
                 return _ScalarResult(token)
 
             tokens = list(self.verification_tokens)
@@ -170,6 +176,10 @@ class FakePhase5DB:
             return _ListResult(tokens)
 
         raise AssertionError(f"Unexpected entity {entity}")
+
+    async def scalar(self, statement):
+        result = await self.execute(statement)
+        return result.scalar()
 
     def add(self, instance):
         if isinstance(instance, User):
@@ -339,7 +349,7 @@ class Phase5AccountSecurityTests(unittest.TestCase):
         raw_secret = send_email_mock.await_args.kwargs["secret"]
         self.assertEqual(token_row.pending_email, "newemail@example.com")
         self.assertNotEqual(token_row.token_hash, raw_secret)
-        self.assertEqual(token_row.token_hash, hash_account_secret(raw_secret))
+        self.assertEqual(token_row.token_hash, hash_account_secret(raw_secret, purpose=SigningPurpose.EMAIL_CHANGE))
         for call in self.audit_mock.await_args_list:
             serialized = repr(call.kwargs)
             self.assertNotIn(raw_secret, serialized)
@@ -362,7 +372,7 @@ class Phase5AccountSecurityTests(unittest.TestCase):
             id=1,
             user_id=self.current_user.id,
             pending_email="stale@example.com",
-            token_hash=hash_account_secret("stale-secret"),
+            token_hash=hash_account_secret("stale-secret", purpose=SigningPurpose.EMAIL_CHANGE),
             expires_at=datetime.utcnow() + timedelta(minutes=15),
             created_at=datetime.utcnow() - timedelta(minutes=5),
             used_at=None,
@@ -373,7 +383,7 @@ class Phase5AccountSecurityTests(unittest.TestCase):
             id=2,
             user_id=self.current_user.id,
             pending_email="fresh@example.com",
-            token_hash=hash_account_secret(active_secret),
+            token_hash=hash_account_secret(active_secret, purpose=SigningPurpose.EMAIL_CHANGE),
             expires_at=datetime.utcnow() + timedelta(minutes=15),
             created_at=datetime.utcnow(),
             used_at=None,
@@ -400,7 +410,7 @@ class Phase5AccountSecurityTests(unittest.TestCase):
             id=1,
             user_id=self.current_user.id,
             email=self.current_user.email,
-            token_hash=hash_account_secret(verification_secret),
+            token_hash=hash_account_secret(verification_secret, purpose=SigningPurpose.EMAIL_VERIFICATION),
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
             created_at=datetime.now(timezone.utc),
             used_at=None,

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.datetime_utils import ensure_utc_datetime, to_naive_utc_datetime
+from app.core.signing_keys import SigningPurpose, derive_purpose_key, legacy_signing_verification_allowed
 from app.models.email_change_token import EmailChangeToken
 from app.models.email_verification_token import EmailVerificationToken
 from app.models.password_reset_token import PasswordResetToken
@@ -69,12 +70,34 @@ def normalize_login_identifier(identifier: str) -> str:
     return normalized
 
 
-def hash_account_secret(secret: str) -> str:
+def hash_account_secret(secret: str, *, purpose: SigningPurpose) -> str:
+    return hmac_module.new(
+        derive_purpose_key(purpose),
+        f"{purpose.value}:{secret}".encode("utf-8"),
+        "sha256",
+    ).hexdigest()
+
+
+def _legacy_hash_account_secret(secret: str) -> str:
+    """The pre-Task-6 scheme: raw SECRET_KEY, no purpose prefix. Only ever
+    computed when legacy_signing_verification_allowed() is True."""
     return hmac_module.new(
         settings.SECRET_KEY.encode("utf-8"),
         secret.encode("utf-8"),
         "sha256",
     ).hexdigest()
+
+
+async def find_account_secret_token(db: AsyncSession, model, *, secret: str, purpose: SigningPurpose):
+    """Looks up a token row by its hash, checking the new purpose-keyed
+    scheme first and — only when legacy_signing_verification_allowed() is
+    True — also the old raw-SECRET_KEY scheme in the same query. With the
+    default (legacy disabled), the legacy hash isn't even computed, let
+    alone queried."""
+    candidate_hashes = [hash_account_secret(secret, purpose=purpose)]
+    if legacy_signing_verification_allowed():
+        candidate_hashes.append(_legacy_hash_account_secret(secret))
+    return await db.scalar(select(model).where(model.token_hash.in_(candidate_hashes)))
 
 
 def generate_account_secret() -> str:
@@ -178,6 +201,7 @@ async def _issue_token(
     user: User,
     ttl_minutes: int,
     request: Request | None,
+    purpose: SigningPurpose,
 ) -> AccountSecurityIssueResult:
     if model is EmailVerificationToken:
         invalidated_count = await revoke_active_email_verification_tokens_for_user(db, user.id)
@@ -188,7 +212,7 @@ async def _issue_token(
     token = model(
         user_id=user.id,
         email=user.email,
-        token_hash=hash_account_secret(raw_secret),
+        token_hash=hash_account_secret(raw_secret, purpose=purpose),
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes),
         requested_by_ip=get_request_ip(request),
         requested_user_agent=sanitize_user_agent(request),
@@ -215,6 +239,7 @@ async def issue_email_verification_token(
         user=user,
         ttl_minutes=settings.EMAIL_VERIFICATION_TOKEN_TTL_MINUTES,
         request=request,
+        purpose=SigningPurpose.EMAIL_VERIFICATION,
     )
 
 
@@ -230,6 +255,7 @@ async def issue_password_reset_token(
         user=user,
         ttl_minutes=settings.PASSWORD_RESET_TOKEN_TTL_MINUTES,
         request=request,
+        purpose=SigningPurpose.PASSWORD_RESET,
     )
 
 
@@ -245,7 +271,7 @@ async def issue_email_change_token(
     token = EmailChangeToken(
         user_id=user.id,
         pending_email=new_email,
-        token_hash=hash_account_secret(raw_secret),
+        token_hash=hash_account_secret(raw_secret, purpose=SigningPurpose.EMAIL_CHANGE),
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.EMAIL_VERIFICATION_TOKEN_TTL_MINUTES),
         requested_by_ip=get_request_ip(request),
         requested_user_agent=sanitize_user_agent(request),
@@ -264,30 +290,27 @@ async def get_email_verification_token_by_secret(
     db: AsyncSession,
     secret: str,
 ) -> EmailVerificationToken | None:
-    result = await db.execute(
-        select(EmailVerificationToken).where(EmailVerificationToken.token_hash == hash_account_secret(secret))
+    return await find_account_secret_token(
+        db, EmailVerificationToken, secret=secret, purpose=SigningPurpose.EMAIL_VERIFICATION,
     )
-    return result.scalar_one_or_none()
 
 
 async def get_password_reset_token_by_secret(
     db: AsyncSession,
     secret: str,
 ) -> PasswordResetToken | None:
-    result = await db.execute(
-        select(PasswordResetToken).where(PasswordResetToken.token_hash == hash_account_secret(secret))
+    return await find_account_secret_token(
+        db, PasswordResetToken, secret=secret, purpose=SigningPurpose.PASSWORD_RESET,
     )
-    return result.scalar_one_or_none()
 
 
 async def get_email_change_token_by_secret(
     db: AsyncSession,
     secret: str,
 ) -> EmailChangeToken | None:
-    result = await db.execute(
-        select(EmailChangeToken).where(EmailChangeToken.token_hash == hash_account_secret(secret))
+    return await find_account_secret_token(
+        db, EmailChangeToken, secret=secret, purpose=SigningPurpose.EMAIL_CHANGE,
     )
-    return result.scalar_one_or_none()
 
 
 def is_token_active(token) -> bool:

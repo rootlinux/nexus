@@ -1,20 +1,26 @@
-from io import BytesIO
+import asyncio
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status, Request
-from PIL import Image, ImageOps, UnidentifiedImageError
-
-# Prevent decompression bombs and pixel DoS from user-uploaded images
-Image.MAX_IMAGE_PIXELS = 50_000_000
 from pydantic import BaseModel
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.api.deps import get_current_interactive_user, get_current_user, get_optional_user
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import RATE_LIMIT_ERROR, RateLimitPolicy, build_scope_key, enforce_rate_limits, get_client_ip, hash_key_part
+from app.core.upload_limits import reject_by_content_length_hint, read_upload_within_limit
 from app.core.security import get_password_hash, verify_password
+from app.models.media_asset import MediaAssetType
+from app.services.image_processing import sanitize_profile_image
+from app.services.media_assets import (
+    attach_pending_media,
+    mark_media_superseded,
+    run_media_operation,
+    write_media_to_storage_and_flush,
+)
 from app.models.block import Block
 from app.models.follow import Follow
 from app.models.user import User
@@ -56,9 +62,18 @@ from app.schemas.user import UserPrivateProfile, UserPublicProfile, UserAdminPro
 
 router = APIRouter(tags=["users"])
 
-MAX_AVATAR_FILE_SIZE = 5 * 1024 * 1024
-MAX_COVER_FILE_SIZE = 8 * 1024 * 1024
-PROFILE_IMAGE_BACKGROUND = "#0d0e12"
+# Moved to Settings.AVATAR_UPLOAD_MAX_BYTES / Settings.COVER_UPLOAD_MAX_BYTES (Round 2, Task 1) — values unchanged.
+
+
+def _extract_storage_key_from_url(public_url: str | None) -> str | None:
+    """Best-effort extraction of a storage_key from a previously-stored
+    avatar/cover public URL (e.g. "/uploads/<uuid>.jpg" -> "<uuid>.jpg").
+    Returns None for an unset/empty URL — mark_media_superseded already
+    treats an untracked/missing key as a legacy-compat no-op, so a None
+    here simply means "nothing to supersede," not an error."""
+    if not public_url:
+        return None
+    return public_url.rstrip("/").rsplit("/", 1)[-1] or None
 
 
 def _escape_like_pattern(value: str) -> str:
@@ -307,61 +322,6 @@ async def get_user_profile(
     )
 
 
-async def _read_uploaded_image(file: UploadFile) -> bytes:
-    try:
-        content = await file.read()
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to read uploaded file",
-        ) from exc
-
-    return content
-
-
-def _image_has_transparency(image: Image.Image) -> bool:
-    if image.mode in {"RGBA", "LA"}:
-        alpha = image.getchannel("A")
-        minimum_alpha, maximum_alpha = alpha.getextrema()
-        return minimum_alpha < 255 or maximum_alpha < 255
-
-    if image.mode == "P":
-        transparency = image.info.get("transparency")
-        if transparency is None:
-            return False
-        if isinstance(transparency, bytes):
-            return any(alpha < 255 for alpha in transparency)
-        if isinstance(transparency, int):
-            return transparency in image.getdata()
-
-    return False
-
-
-def _normalize_profile_image_upload(content: bytes) -> bytes:
-    try:
-        with Image.open(BytesIO(content)) as uploaded_image:
-            image = ImageOps.exif_transpose(uploaded_image)
-
-            if _image_has_transparency(image):
-                background = Image.new("RGBA", image.size, PROFILE_IMAGE_BACKGROUND)
-                image = Image.alpha_composite(background, image.convert("RGBA"))
-
-            rgb_image = image.convert("RGB")
-            output = BytesIO()
-            rgb_image.save(output, format="JPEG", quality=91, optimize=True)
-            return output.getvalue()
-    except (Image.DecompressionBombError, ValueError) as exc:
-        # Covers decompression bombs and excessive pixel dimensions (MAX_IMAGE_PIXELS)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Image dimensions too large",
-        ) from exc
-    except (OSError, UnidentifiedImageError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to process uploaded file",
-        ) from exc
-
 @router.patch("/me/profile", response_model=UserProfile)
 async def update_my_profile(
     request: Request,
@@ -410,14 +370,17 @@ async def upload_my_avatar(
     db: AsyncSession = Depends(get_db),
 ):
     await enforce_rate_limits(request, _profile_image_upload_policies(current_user.id, "avatar"))
-    content = await _read_uploaded_image(file)
+    reject_by_content_length_hint(
+        request, limit=settings.AVATAR_UPLOAD_MAX_BYTES + settings.UPLOAD_GUARD_OVERHEAD_BYTES
+    )
+    content = await read_upload_within_limit(file, limit=settings.AVATAR_UPLOAD_MAX_BYTES)
     assessment = assess_media_input(
         ModerationSurface.PROFILE_AVATAR,
         content_type=file.content_type,
         original_filename=file.filename,
         content=content,
         content_size=len(content),
-        max_size=MAX_AVATAR_FILE_SIZE,
+        max_size=settings.AVATAR_UPLOAD_MAX_BYTES,
     )
     signal = await create_moderation_signal(db, user_id=current_user.id, assessment=assessment)
     if assessment.is_blocked:
@@ -427,26 +390,40 @@ async def upload_my_avatar(
         await db.commit()
         raise_review_required_error(assessment.surface_type)
 
-    storage_provider = get_storage_provider()
-    normalized_content = _normalize_profile_image_upload(content)
+    sanitized = await asyncio.to_thread(sanitize_profile_image, content)
+    previous_storage_key = _extract_storage_key_from_url(current_user.avatar_url)
 
-    try:
-        stored_media = await storage_provider.save_file(
-            content=normalized_content,
-            content_type="image/jpeg",
+    async def _op(compensation: list[str]) -> AvatarUploadResponse:
+        asset = await write_media_to_storage_and_flush(
+            db, owner_user_id=current_user.id, media_type=MediaAssetType.AVATAR,
+            content=sanitized.content, content_type=sanitized.content_type,
             original_filename=file.filename,
         )
+        compensation.append(asset.storage_key)
+        await attach_pending_media(
+            db, storage_key=asset.storage_key, owner_user_id=current_user.id,
+            attached_to_type="user_avatar", attached_to_id=current_user.id,
+        )
+        if previous_storage_key:
+            await mark_media_superseded(db, storage_key=previous_storage_key)
+
+        public_url = get_storage_provider().get_public_url(asset.storage_key)
+        signal.media_url = public_url
+        current_user.avatar_url = public_url
+        return AvatarUploadResponse(avatar_url=public_url)
+
+    try:
+        response = await run_media_operation(db, _op)
     except Exception as exc:
+        if isinstance(exc, HTTPException):
+            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to save uploaded file",
         ) from exc
 
-    signal.media_url = stored_media.public_url
-    current_user.avatar_url = stored_media.public_url
-    await db.commit()
     await db.refresh(current_user)
-    return AvatarUploadResponse(avatar_url=stored_media.public_url)
+    return response
 
 
 @router.post("/me/cover", response_model=CoverUploadResponse, status_code=status.HTTP_201_CREATED)
@@ -457,14 +434,17 @@ async def upload_my_cover(
     db: AsyncSession = Depends(get_db),
 ):
     await enforce_rate_limits(request, _profile_image_upload_policies(current_user.id, "cover"))
-    content = await _read_uploaded_image(file)
+    reject_by_content_length_hint(
+        request, limit=settings.COVER_UPLOAD_MAX_BYTES + settings.UPLOAD_GUARD_OVERHEAD_BYTES
+    )
+    content = await read_upload_within_limit(file, limit=settings.COVER_UPLOAD_MAX_BYTES)
     assessment = assess_media_input(
         ModerationSurface.PROFILE_COVER,
         content_type=file.content_type,
         original_filename=file.filename,
         content=content,
         content_size=len(content),
-        max_size=MAX_COVER_FILE_SIZE,
+        max_size=settings.COVER_UPLOAD_MAX_BYTES,
     )
     signal = await create_moderation_signal(db, user_id=current_user.id, assessment=assessment)
     if assessment.is_blocked:
@@ -474,26 +454,40 @@ async def upload_my_cover(
         await db.commit()
         raise_review_required_error(assessment.surface_type)
 
-    storage_provider = get_storage_provider()
-    normalized_content = _normalize_profile_image_upload(content)
+    sanitized = await asyncio.to_thread(sanitize_profile_image, content)
+    previous_storage_key = _extract_storage_key_from_url(current_user.cover_url)
 
-    try:
-        stored_media = await storage_provider.save_file(
-            content=normalized_content,
-            content_type="image/jpeg",
+    async def _op(compensation: list[str]) -> CoverUploadResponse:
+        asset = await write_media_to_storage_and_flush(
+            db, owner_user_id=current_user.id, media_type=MediaAssetType.COVER,
+            content=sanitized.content, content_type=sanitized.content_type,
             original_filename=file.filename,
         )
+        compensation.append(asset.storage_key)
+        await attach_pending_media(
+            db, storage_key=asset.storage_key, owner_user_id=current_user.id,
+            attached_to_type="user_cover", attached_to_id=current_user.id,
+        )
+        if previous_storage_key:
+            await mark_media_superseded(db, storage_key=previous_storage_key)
+
+        public_url = get_storage_provider().get_public_url(asset.storage_key)
+        signal.media_url = public_url
+        current_user.cover_url = public_url
+        return CoverUploadResponse(cover_url=public_url)
+
+    try:
+        response = await run_media_operation(db, _op)
     except Exception as exc:
+        if isinstance(exc, HTTPException):
+            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to save uploaded file",
         ) from exc
 
-    signal.media_url = stored_media.public_url
-    current_user.cover_url = stored_media.public_url
-    await db.commit()
     await db.refresh(current_user)
-    return CoverUploadResponse(cover_url=stored_media.public_url)
+    return response
 
 
 @router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)

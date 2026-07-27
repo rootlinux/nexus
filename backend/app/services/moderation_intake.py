@@ -136,6 +136,85 @@ def _read_le_u16(content: bytes, offset: int) -> int:
     return struct.unpack("<H", content[offset : offset + 2])[0]
 
 
+_ADAM7_PASSES = (  # (x0, y0, dx, dy) per PNG spec §8.2
+    (0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8),
+    (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2),
+)
+_CHANNELS_BY_COLOR_TYPE = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
+
+
+class PngDecompressedPayloadTooLarge(Exception):
+    pass
+
+
+def _row_bytes(pixel_width: int, bits_per_pixel: int) -> int:
+    return (pixel_width * bits_per_pixel + 7) // 8   # ceil-division — correct for sub-byte bit depths (1/2/4-bit)
+
+
+def _expected_idat_size(*, width: int, height: int, bit_depth: int, color_type: int, interlace_method: int) -> int:
+    bits_per_pixel = _CHANNELS_BY_COLOR_TYPE[color_type] * bit_depth
+    if interlace_method == 0:
+        return (_row_bytes(width, bits_per_pixel) + 1) * height   # +1 filter-type byte per scanline
+    total = 0
+    for x0, y0, dx, dy in _ADAM7_PASSES:
+        pass_w = -(-(width - x0) // dx) if width > x0 else 0     # ceil division
+        pass_h = -(-(height - y0) // dy) if height > y0 else 0
+        if pass_w and pass_h:
+            total += (_row_bytes(pass_w, bits_per_pixel) + 1) * pass_h
+    return total
+
+
+def _safe_png_decompress(idat_chunk_iter, *, width, height, bit_depth, color_type, interlace_method) -> None:
+    """Bounded, exact-size PNG IDAT decompression (Round 2, Task 1, corrected
+    per the fourth amendment's item 7). A valid PNG's IDAT stream decompresses
+    to EXACTLY the size IHDR implies — this enforces that exact match, plus
+    decompressor.eof, rejection of trailing unused_data, and rejection of any
+    IDAT bytes arriving after the zlib stream has already ended — on top of
+    the independent compressed-input cap and bounded-output ceiling."""
+    expected_size = _expected_idat_size(
+        width=width, height=height, bit_depth=bit_depth,
+        color_type=color_type, interlace_method=interlace_method,
+    )
+    cap = expected_size + settings.PNG_DECOMPRESS_SLACK_BYTES
+
+    decompressor = zlib.decompressobj()
+    total_out = 0
+    total_in = 0
+    stream_ended = False
+
+    for chunk in idat_chunk_iter:
+        if stream_ended:
+            raise PngDecompressedPayloadTooLarge("IDAT data present after zlib stream end")
+
+        total_in += len(chunk)
+        if total_in > settings.PNG_MAX_COMPRESSED_INPUT_BYTES:
+            raise PngDecompressedPayloadTooLarge("compressed input exceeds cap")
+
+        pending = chunk
+        while pending:
+            budget = cap - total_out
+            if budget <= 0:
+                raise PngDecompressedPayloadTooLarge("decompressed output exceeds cap")
+            out = decompressor.decompress(pending, max_length=budget)
+            total_out += len(out)
+            if total_out > cap:
+                raise PngDecompressedPayloadTooLarge("decompressed output exceeds cap")
+            pending = decompressor.unconsumed_tail
+
+        if decompressor.eof:
+            stream_ended = True
+            if decompressor.unused_data:
+                raise PngDecompressedPayloadTooLarge("unused data present after zlib stream end")
+
+    if not decompressor.eof:
+        raise PngDecompressedPayloadTooLarge("incomplete or truncated compressed stream")
+
+    if total_out != expected_size:
+        raise PngDecompressedPayloadTooLarge(
+            f"decompressed size {total_out} does not match expected exact size {expected_size}"
+        )
+
+
 def _inspect_png(content: bytes) -> MediaInspection:
     issues: list[str] = []
     if len(content) < 33 or not content.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -144,8 +223,12 @@ def _inspect_png(content: bytes) -> MediaInspection:
     offset = 8
     width = None
     height = None
+    bit_depth = None
+    color_type = None
+    interlace_method = None
     idat_chunks: list[bytes] = []
     saw_iend = False
+    ihdr_valid = False
 
     while offset + 12 <= len(content):
         chunk_length = _read_be_u32(content, offset)
@@ -164,9 +247,16 @@ def _inspect_png(content: bytes) -> MediaInspection:
                 break
             width = _read_be_u32(chunk_data, 0)
             height = _read_be_u32(chunk_data, 4)
+            bit_depth = chunk_data[8]
+            color_type = chunk_data[9]
+            interlace_method = chunk_data[12]
             if width <= 0 or height <= 0:
                 issues.append("invalid_png_dimensions")
                 break
+            if color_type not in _CHANNELS_BY_COLOR_TYPE or bit_depth not in (1, 2, 4, 8, 16):
+                issues.append("invalid_png_ihdr")
+                break
+            ihdr_valid = True
         elif chunk_type == b"IDAT":
             idat_chunks.append(chunk_data)
         elif chunk_type == b"IEND":
@@ -180,10 +270,18 @@ def _inspect_png(content: bytes) -> MediaInspection:
         issues.append("missing_png_end")
 
     if idat_chunks:
-        try:
-            zlib.decompress(b"".join(idat_chunks))
-        except Exception:
-            issues.append("invalid_png_payload")
+        if ihdr_valid:
+            try:
+                _safe_png_decompress(
+                    iter(idat_chunks), width=width, height=height,
+                    bit_depth=bit_depth, color_type=color_type, interlace_method=interlace_method,
+                )
+            except PngDecompressedPayloadTooLarge:
+                issues.append("png_decompressed_payload_too_large")
+            except Exception:
+                issues.append("invalid_png_payload")
+        # If IHDR itself is missing/invalid, decompression is skipped entirely — the
+        # file is already rejected via invalid_png_ihdr/invalid_png_dimensions above.
     else:
         issues.append("missing_png_payload")
 

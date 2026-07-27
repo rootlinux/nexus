@@ -3,22 +3,70 @@
 # DO NOT use this file for production. Production must use `deploy/Caddyfile.prod`.
 # This file intentionally disables automatic HTTPS because it is only for localhost-style smoke testing.
 {
-  auto_https off
+	auto_https off
 }
 
 app.nexus.localtest.me {
-  encode zstd gzip
+	encode zstd gzip
 
-  @serviceWorker path /sw.js
-  header @serviceWorker Cache-Control "no-cache, no-store, must-revalidate"
+	@serviceWorker path /sw.js
+	header @serviceWorker Cache-Control "no-cache, no-store, must-revalidate"
 
-  @manifest path /manifest.webmanifest
-  header @manifest Cache-Control "public, max-age=0, must-revalidate"
+	@manifest path /manifest.webmanifest
+	header @manifest Cache-Control "public, max-age=0, must-revalidate"
 
-  reverse_proxy web:3000
+	reverse_proxy web:3000
 }
 
 api.nexus.localtest.me {
-  encode zstd gzip
-  reverse_proxy backend:8000
+	encode zstd gzip
+
+	# Round 2, Task 1: per-route upload body-size backstop. These four values are
+	# static text here, NOT read from app/core/config.py at runtime — if you change
+	# AVATAR_UPLOAD_MAX_BYTES / COVER_UPLOAD_MAX_BYTES / POST_IMAGE_UPLOAD_MAX_BYTES /
+	# FEEDBACK_ATTACHMENT_MAX_BYTES in Python, update this block too. There is no
+	# automatic sync between the two config surfaces.
+	@avatar_upload {
+		path /api/users/me/avatar /api/users/me/avatar/
+	}
+	handle @avatar_upload {
+		request_body {
+			max_size 5300KB # AVATAR_UPLOAD_MAX_BYTES (5MB) + UPLOAD_GUARD_OVERHEAD_BYTES (256KB), rounded up
+		}
+		reverse_proxy backend:8000
+	}
+
+	@cover_upload {
+		path /api/users/me/cover /api/users/me/cover/
+	}
+	handle @cover_upload {
+		request_body {
+			max_size 8450KB # COVER_UPLOAD_MAX_BYTES (8MB) + UPLOAD_GUARD_OVERHEAD_BYTES (256KB), rounded up
+		}
+		reverse_proxy backend:8000
+	}
+
+	@post_image_upload {
+		path /api/posts/upload-image /api/posts/upload-image/
+	}
+	handle @post_image_upload {
+		request_body {
+			max_size 5300KB # POST_IMAGE_UPLOAD_MAX_BYTES (5MB) + UPLOAD_GUARD_OVERHEAD_BYTES (256KB), rounded up
+		}
+		reverse_proxy backend:8000
+	}
+
+	@feedback_report_upload {
+		path /api/feedback/report /api/feedback/report/
+	}
+	handle @feedback_report_upload {
+		request_body {
+			max_size 5300KB # FEEDBACK_ATTACHMENT_MAX_BYTES (5MB) + UPLOAD_GUARD_OVERHEAD_BYTES (256KB), rounded up
+		}
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy backend:8000
+	}
 }

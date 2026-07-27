@@ -1,7 +1,10 @@
+import asyncio
 import json
 import os
 import secrets
+import shutil
 import stat
+import tempfile
 import unittest
 from base64 import b64decode
 from urllib.parse import urlparse
@@ -12,6 +15,8 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from redis.exceptions import RedisError
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.pool import NullPool
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/xdb")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
@@ -20,7 +25,10 @@ os.environ.setdefault("SECRET_KEY", secrets.token_hex(32))
 from app.main import app
 from app.api import deps
 from app.core.config import settings
+from app.core.database import get_db
 from app.core.rate_limit import _memory_rate_limiter
+from app.models.staff_permission import StaffPermission, StaffRole
+from tests.media_test_support import create_test_user
 
 SAMPLE_PNG = b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+c/aAAAAAASUVORK5CYII=")
 
@@ -33,6 +41,36 @@ class FeedbackReportApiTests(unittest.TestCase):
         self._original_feedback_to = settings.FEEDBACK_REPORT_TO_EMAIL
         self._original_mail_provider = settings.MAIL_PROVIDER
         self._original_mail_capture_dir = settings.MAIL_CAPTURE_DIR
+        # Round 2, Task 1 fix: this test file submits real feedback attachments
+        # through the real LocalStorageProvider (no storage mock), and
+        # _get_feedback_storage_provider() reads settings.FEEDBACK_ATTACHMENT_LOCAL_DIR
+        # fresh on every call. Left at its default, that resolves to the real,
+        # protected backend/feedback_private_uploads/ directory whenever tests
+        # run from backend/ — redirect it to an isolated temp directory for the
+        # duration of each test instead.
+        self._original_feedback_attachment_dir = settings.FEEDBACK_ATTACHMENT_LOCAL_DIR
+        self._feedback_attachment_temp_dir = tempfile.mkdtemp(prefix="feedback-attachments-test-")
+        settings.FEEDBACK_ATTACHMENT_LOCAL_DIR = self._feedback_attachment_temp_dir
+
+        # Round 2 Task 3: submit_feedback_report now writes real FeedbackReport/
+        # MediaAsset/UserMediaQuota rows (submitter_user_id/owner_user_id are real
+        # FKs to users.id), so this needs a genuine DB-backed user and its own
+        # dedicated engine/session — never the app's shared global get_db engine,
+        # which collides across event loops with other test files sharing this
+        # pytest process ("attached to a different loop", confirmed via a real
+        # failure during Task 3's own full-suite verification run).
+        # This engine is used ONLY by override_db(), inside whatever loop
+        # TestClient's own requests actually run on. NullPool is required:
+        # TestClient does not guarantee one persistent event loop across
+        # separate .post()/.get() calls on the same instance (confirmed via
+        # a real "Event loop is closed" failure on a test making 4 sequential
+        # requests) — pooling a connection risks handing a later request a
+        # connection bound to an already-closed prior loop. NullPool opens a
+        # fresh physical connection per checkout and discards it afterward,
+        # which is safe regardless of which loop is live for a given request.
+        self.engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
+        self.test_user_id = asyncio.run(self._create_test_user_via_temp_engine())
 
     def tearDown(self):
         app.dependency_overrides.clear()
@@ -41,32 +79,85 @@ class FeedbackReportApiTests(unittest.TestCase):
         settings.FEEDBACK_REPORT_TO_EMAIL = self._original_feedback_to
         settings.MAIL_PROVIDER = self._original_mail_provider
         settings.MAIL_CAPTURE_DIR = self._original_mail_capture_dir
+        settings.FEEDBACK_ATTACHMENT_LOCAL_DIR = self._original_feedback_attachment_dir
+        shutil.rmtree(self._feedback_attachment_temp_dir, ignore_errors=True)
+        asyncio.run(self.engine.dispose())
+
+    async def _create_test_user_via_temp_engine(self) -> int:
+        # A dedicated, fully-disposed-before-return engine — NOT self.engine.
+        # asyncio.run() opens and closes its own event loop; if we drew this
+        # connection from self.engine's pool instead, that pool would keep a
+        # live connection bound to this now-closed loop, and TestClient's
+        # later request (its own separate loop) would crash reusing it
+        # ("attached to a different loop") — confirmed via a real failure
+        # when this was first tried against self.engine directly.
+        temp_engine = create_async_engine(settings.DATABASE_URL)
+        try:
+            temp_session_factory = async_sessionmaker(temp_engine, expire_on_commit=False)
+            async with temp_session_factory() as session:
+                user = await create_test_user(session)
+                await session.commit()
+                return user.id
+        finally:
+            await temp_engine.dispose()
 
     def _client(self) -> TestClient:
         async def override_user():
             return SimpleNamespace(
-                id=42,
+                id=self.test_user_id,
                 username="lukey",
                 email="lukey@example.com",
                 status=None,
                 is_active=True,
             )
 
+        async def override_db():
+            async with self.session_factory() as session:
+                yield session
+
         app.dependency_overrides[deps.get_current_user] = override_user
+        app.dependency_overrides[get_db] = override_db
         return TestClient(app, base_url="http://localhost")
 
+    async def _create_staff_user_via_temp_engine(self, *, can_view_feedback: bool) -> int:
+        # Same fully-disposed-before-return temp-engine pattern as
+        # _create_test_user_via_temp_engine. A real row is required now:
+        # the download route's success path writes a real audit_log row via
+        # write_audit_log, and actor_user_id is a real FK to users.id.
+        temp_engine = create_async_engine(settings.DATABASE_URL)
+        try:
+            temp_session_factory = async_sessionmaker(temp_engine, expire_on_commit=False)
+            async with temp_session_factory() as session:
+                user = await create_test_user(session, username=f"staffer-{secrets.token_hex(4)}")
+                await session.flush()
+                session.add(StaffPermission(
+                    user_id=user.id, role=StaffRole.SUPER_ADMIN, can_view_feedback=can_view_feedback,
+                ))
+                await session.commit()
+                return user.id
+        finally:
+            await temp_engine.dispose()
+
     def _override_admin_session(self) -> None:
-        async def override_admin():
+        # Round 2 Task 7: the attachment-download route no longer depends on
+        # require_admin_session — it depends on require_feedback_read_with_audit,
+        # a real dependency wrapper around enforce_staff_capability(FEEDBACK_READ).
+        # Overriding get_current_user with a staff user whose can_view_feedback
+        # is True lets that real capability check actually run and pass,
+        # rather than bypassing the dependency entirely.
+        staff_user_id = asyncio.run(self._create_staff_user_via_temp_engine(can_view_feedback=True))
+
+        async def override_staff_user():
             return SimpleNamespace(
-                id=7,
+                id=staff_user_id,
                 username="staffer",
                 email="staffer@example.com",
                 status=None,
                 is_active=True,
-                staff_permission=SimpleNamespace(role="super_admin"),
+                staff_permission=SimpleNamespace(role=StaffRole.SUPER_ADMIN, can_view_feedback=True),
             )
 
-        app.dependency_overrides[deps.require_admin_session] = override_admin
+        app.dependency_overrides[deps.get_current_user] = override_staff_user
 
     def test_feedback_report_sends_structured_email(self):
         with TemporaryDirectory() as temp_dir:
@@ -132,7 +223,7 @@ class FeedbackReportApiTests(unittest.TestCase):
             self.assertIn("Attachment: Included", payload)
             self.assertIn("Attachment filename: frozen-feed.png", payload)
             self.assertIn("Attachment content type: image/png", payload)
-            self.assertIn("Attachment URL: http://localhost/api/feedback/attachments/", payload)
+            self.assertIn(f"Attachment URL: {settings.API_PUBLIC_BASE_URL}/api/feedback/attachments/", payload)
 
             attachment_url = next(
                 line.split("Attachment URL: ", 1)[1]
@@ -141,6 +232,14 @@ class FeedbackReportApiTests(unittest.TestCase):
             )
             direct_path = urlparse(attachment_url).path
 
+            # Round 2 Task 7: the download route now depends on the SAME
+            # get_current_user dependency _client() already overrode for the
+            # reporting user ("lukey") — that override is still globally
+            # active on `app` at this point. Clear it here so this request
+            # genuinely exercises the real Bearer-auth dependency
+            # (unauthenticated), instead of silently resolving to "lukey"
+            # (who would then just fail the capability check with a 403).
+            del app.dependency_overrides[deps.get_current_user]
             unsigned_response = client.get(direct_path)
             self.assertEqual(unsigned_response.status_code, 401)
             self.assertEqual(unsigned_response.json(), {"detail": "Not authenticated"})
@@ -149,7 +248,16 @@ class FeedbackReportApiTests(unittest.TestCase):
             with patch("app.api.routes.feedback.enforce_rate_limits", new=AsyncMock()):
                 signed_response = client.get(attachment_url)
             self.assertEqual(signed_response.status_code, 200)
-            self.assertEqual(signed_response.content, SAMPLE_PNG)
+            # Round 2, Task 2: the stored attachment is now decoded + re-encoded
+            # (metadata stripping), so it is no longer byte-identical to the
+            # original upload — assert it's still a valid, same-dimension PNG.
+            from PIL import Image
+            from io import BytesIO
+
+            original = Image.open(BytesIO(SAMPLE_PNG))
+            stored = Image.open(BytesIO(signed_response.content))
+            self.assertEqual(stored.format, "PNG")
+            self.assertEqual(stored.size, original.size)
             self.assertEqual(signed_response.headers["content-type"], "image/png")
 
     def test_feedback_attachment_signed_url_rejects_invalid_signature(self):
@@ -181,7 +289,7 @@ class FeedbackReportApiTests(unittest.TestCase):
             with patch("app.api.routes.feedback.enforce_rate_limits", new=AsyncMock()):
                 signed_response = client.get(tampered_url)
             self.assertEqual(signed_response.status_code, 403)
-            self.assertEqual(signed_response.json(), {"detail": "Invalid attachment signature"})
+            self.assertEqual(signed_response.json(), {"detail": "Invalid or expired attachment link."})
 
     def test_feedback_report_rejects_invalid_attachment_type(self):
         with patch("app.core.rate_limit._hit_redis_limit", new=AsyncMock(side_effect=RedisError("down"))):
@@ -212,8 +320,10 @@ class FeedbackReportApiTests(unittest.TestCase):
                 files={"attachment": ("oversized.png", oversized_png, "image/png")},
             )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"detail": "Attachment must be 5 MB or smaller."})
+        # Round 2, Task 1: oversize now short-circuits to 413 (via the ASGI body-size
+        # guard / read_upload_within_limit) before assess_media_input/inspect_media_bytes
+        # ever runs, instead of surfacing as a 400 after a full read.
+        self.assertEqual(response.status_code, 413)
 
     def test_feedback_report_rejects_invalid_payload(self):
         with patch("app.core.rate_limit._hit_redis_limit", new=AsyncMock(side_effect=RedisError("down"))):

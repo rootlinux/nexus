@@ -10,7 +10,12 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import engine
-from app.core.http import HostValidationMiddleware, TrustedProxyHeadersMiddleware, apply_cache_control_headers
+from app.core.http import (
+    HostValidationMiddleware,
+    RequestBodySizeLimitMiddleware,
+    TrustedProxyHeadersMiddleware,
+    apply_cache_control_headers,
+)
 from app.core.rate_limit import get_redis_client
 from app.api import api_router
 from app.bootstrap import bootstrap_admin_if_configured
@@ -92,6 +97,20 @@ async def add_security_headers(request, call_next):
         uploads_cache_control=settings.UPLOADS_CACHE_CONTROL,
     )
     return response
+
+
+# Registered LAST (Round 2, Task 1) — outermost among the user middleware, so
+# its 413 response (sent directly via send(), not via exception propagation —
+# see RequestBodySizeLimitMiddleware's docstring in app/core/http.py for why
+# that changed) reaches the client without passing through anything else that
+# might also try to touch the response for this request.
+UPLOAD_PATH_LIMITS = {
+    "/api/users/me/avatar": settings.AVATAR_UPLOAD_MAX_BYTES + settings.UPLOAD_GUARD_OVERHEAD_BYTES,
+    "/api/users/me/cover": settings.COVER_UPLOAD_MAX_BYTES + settings.UPLOAD_GUARD_OVERHEAD_BYTES,
+    "/api/posts/upload-image": settings.POST_IMAGE_UPLOAD_MAX_BYTES + settings.UPLOAD_GUARD_OVERHEAD_BYTES,
+    "/api/feedback/report": settings.FEEDBACK_ATTACHMENT_MAX_BYTES + settings.UPLOAD_GUARD_OVERHEAD_BYTES,
+}
+app.add_middleware(RequestBodySizeLimitMiddleware, path_limits=UPLOAD_PATH_LIMITS)
 
 
 @app.get("/")
