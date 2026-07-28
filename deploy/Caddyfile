@@ -6,7 +6,7 @@
 	auto_https off
 }
 
-app.nexus.localtest.me {
+http://app.nexus.localtest.me {
 	encode zstd gzip
 
 	@serviceWorker path /sw.js
@@ -18,7 +18,7 @@ app.nexus.localtest.me {
 	reverse_proxy web:3000
 }
 
-api.nexus.localtest.me {
+http://api.nexus.localtest.me {
 	encode zstd gzip
 
 	# Round 2, Task 1: per-route upload body-size backstop. These four values are

@@ -103,14 +103,20 @@ pytest
 ```bash
 # 1. Configure
 cp backend/.env.example backend/.env
-cp deploy/.env.local-smoke.example deploy/.env
+cp deploy/.env.local-smoke.example deploy/.env.docker
 
 # 2. Start everything (Postgres, Redis, backend, frontend, Caddy)
 ./deploy/scripts/docker-start.sh
 
-# 3. Reset DB + restart from scratch
-./deploy/scripts/docker-reset-and-start.sh
+# 3. Optional: permanently delete the local DB volume + restart from scratch
+CONFIRM_RESET_LOCAL_DB=yes ./deploy/scripts/docker-reset-and-start.sh
 ```
+
+The local scripts layer [`deploy/docker-compose.local.yml`](deploy/docker-compose.local.yml)
+over the production-oriented base Compose file. This selects the HTTP-only
+`localtest.me` Caddy configuration and pins browser-facing origins to the local
+Nexus hostnames. Production deployments must use the base Compose file by itself
+with [`deploy/Caddyfile.prod`](deploy/Caddyfile.prod) and explicit real hostnames.
 
 `.env.example` files exist for [`backend/`](backend/.env.example),
 [`web/`](web/.env.example), [`nexus-mcp/`](nexus-mcp/.env.example), and the
@@ -169,7 +175,7 @@ Use the printed code on the `/register` page.
 1. In `deploy/.env.docker`, set `APP_ENV=development` (or `test`/`local`) and `ENABLE_BOOTSTRAP_ADMIN=true`, then fill in `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` (16+ chars, not a dictionary phrase) / `BOOTSTRAP_ADMIN_DISPLAY_NAME`. `ENABLE_BOOTSTRAP_ADMIN` is rejected unless `APP_ENV` is a non-production value — see `backend/app/core/config.py`.
 2. Restart: `./deploy/scripts/docker-start.sh`.
 3. **Note:** admin/staff accounts cannot sign in with just a password — a WebAuthn security key is required (`app/api/routes/auth.py`), and there is currently no frontend page wired up to the backend's `ENABLE_ADMIN_WEBAUTHN_RECOVERY` flow to register the first one. In practice, use the bootstrap admin's `user.id` from the backend logs with Option A's script (set `created_by_id=<id>`) rather than trying to log in as that account through the UI.
-4. Set `APP_ENV` and `ENABLE_BOOTSTRAP_ADMIN` back to `production` / `false` afterward — don't ship a local-smoke config with bootstrap admin enabled.
+4. Set `ENABLE_BOOTSTRAP_ADMIN` back to `false` afterward. Keep the local smoke stack in `development`; production uses the base Compose file without the local override.
 
 ## Email Delivery
 
