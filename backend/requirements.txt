@@ -27,7 +27,7 @@ python-dotenv==1.2.2
 bcrypt==4.0.1
 zxcvbn==4.4.28
 Pillow==12.3.0
-cryptography==48.0.1
+cryptography==50.0.0
 greenlet==3.2.1
 webauthn==2.1.0
 pytest==9.0.3
