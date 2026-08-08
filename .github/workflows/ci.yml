@@ -89,8 +89,6 @@ jobs:
           node-version: ${{ env.NODE_LTS_VERSION }}
       - name: Install
         run: cd web && npm ci
-      - name: Test
-        run: cd web && npm test
       - name: Typecheck
         # An explicit gate. `next build` type-checks only what it bundles, so a type error
         # in a test helper or an unreferenced module can sail past it.
@@ -98,7 +96,12 @@ jobs:
       - name: Lint
         run: cd web && npm run lint
       - name: Build
+        # Must run before Test: the service-worker test loads public/sw.js,
+        # which is a Next.js build artifact (gitignored) and does not exist
+        # at checkout time.
         run: cd web && npm run build
+      - name: Test
+        run: cd web && npm test
 
   mcp-test:
     runs-on: ubuntu-latest
