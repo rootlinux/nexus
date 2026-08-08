@@ -22,7 +22,7 @@ if [[ ! -f "$ENV_FILE" || -L "$ENV_FILE" ]]; then
   exit 1
 fi
 
-if [[ ! -O "$ENV_FILE" || "$(stat -f '%Lp' "$ENV_FILE")" != "600" ]]; then
+if [[ ! -O "$ENV_FILE" || "$(stat -c '%a' "$ENV_FILE" 2>/dev/null || stat -f '%Lp' "$ENV_FILE" 2>/dev/null)" != "600" ]]; then
   echo "Unsafe .env.docker: it must be a regular file you own, with mode 0600." >&2
   echo "Fix it with: chmod 600 '$ENV_FILE'" >&2
   exit 1
