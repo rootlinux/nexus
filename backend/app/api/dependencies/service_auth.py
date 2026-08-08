@@ -14,7 +14,6 @@ api_key_header = APIKeyHeader(name="X-Service-Token", auto_error=False)
 SCOPE_READ = "service:read"
 SCOPE_NOTIFY = "service:notify"
 SCOPE_DELETE = "service:delete"
-_LEGACY_TOKEN_SCOPES = frozenset({SCOPE_READ, SCOPE_NOTIFY, SCOPE_DELETE})
 
 
 @dataclass(frozen=True)
@@ -43,22 +42,14 @@ def _match_scoped_token(provided: str, required_scope: str) -> ServiceAuthContex
     return None
 
 
-def _match_legacy_token(provided: str, required_scope: str) -> ServiceAuthContext | None:
-    if not settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN:
-        return None
-    legacy_token = settings.ADMIN_SERVICE_TOKEN
-    if legacy_token and secrets.compare_digest(provided, legacy_token):
-        return ServiceAuthContext(principal_id="legacy-admin-service", scopes=_LEGACY_TOKEN_SCOPES)
-    return None
-
-
 def require_service_scope(required_scope: str):
     """FastAPI dependency factory: authenticate via X-Service-Token and require `required_scope`.
 
-    Prefers a scoped credential (SERVICE_TOKEN_READ/NOTIFY/DELETE) for the exact scope. Falls
-    back to the deprecated ADMIN_SERVICE_TOKEN — which still grants all three scopes — only
-    when ENABLE_LEGACY_ADMIN_SERVICE_TOKEN is explicitly set to true; it is inert otherwise,
-    so simply having ADMIN_SERVICE_TOKEN set can no longer silently grant full access.
+    The only credential that can satisfy a scope is that scope's own token
+    (SERVICE_TOKEN_READ / SERVICE_TOKEN_NOTIFY / SERVICE_TOKEN_DELETE). There is no
+    combined credential and no fallback: presenting the read token to a delete endpoint
+    is rejected exactly like an unknown token, and a scope whose token is unset has no
+    valid credential at all. Fails closed when the header is missing.
     """
 
     async def dependency(token: str = Security(api_key_header)) -> ServiceAuthContext:
@@ -69,12 +60,12 @@ def require_service_scope(required_scope: str):
             logger.warning("Service auth rejected: no X-Service-Token provided (scope=%s)", required_scope)
             raise HTTPException(status_code=403, detail="Invalid or missing service token")
 
-        context = _match_scoped_token(provided, required_scope) or _match_legacy_token(provided, required_scope)
+        context = _match_scoped_token(provided, required_scope)
         if context is None:
             logger.warning(
-                "Service auth rejected: token did not match required scope=%s (legacy_enabled=%s)",
+                "Service auth rejected: token did not match required scope=%s (scope_configured=%s)",
                 required_scope,
-                settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN,
+                required_scope in _scoped_credentials(),
             )
             raise HTTPException(status_code=403, detail="Invalid or missing service token")
 

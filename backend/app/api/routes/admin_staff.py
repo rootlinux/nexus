@@ -22,7 +22,7 @@ from app.schemas.staff import (
 from app.services.audit import write_audit_log
 from app.services.admin_security import revoke_all_refresh_tokens_for_user
 from app.services.staff_permissions import (
-    PHASE1_EDITABLE_PERMISSION_FIELDS,
+    EDITABLE_STAFF_PERMISSION_FIELDS,
     apply_staff_permission_updates,
     build_staff_defaults,
     enforce_staff_assignment_permissions,
@@ -76,7 +76,7 @@ def _staff_assignment_to_response(staff_permission: StaffPermission, actor: User
 async def _get_user_by_identifier(db: AsyncSession, payload: StaffAssignmentCreate) -> User:
     if payload.user_id is None and payload.username is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Either user_id or username is required",
         )
 
@@ -210,7 +210,7 @@ async def update_staff_assignment(
 
     updates = {
         field_name: getattr(payload.permissions, field_name)
-        for field_name in PHASE1_EDITABLE_PERMISSION_FIELDS
+        for field_name in EDITABLE_STAFF_PERMISSION_FIELDS
     }
     apply_staff_permission_updates(
         staff_permission,

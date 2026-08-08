@@ -249,7 +249,7 @@ class FakeSecureAdminDB:
         return None
 
 
-class AdminSecureActionsPhase2Tests(unittest.TestCase):
+class AdminSecureActionsAuthorizationTests(unittest.TestCase):
     def setUp(self):
         app.dependency_overrides.clear()
         async def _noop_rate_limit(*args, **kwargs):
@@ -288,7 +288,7 @@ class AdminSecureActionsPhase2Tests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    def test_moderator_cannot_use_phase2_actions_by_default(self):
+    def test_moderator_cannot_use_secure_admin_actions_by_default(self):
         db = FakeSecureAdminDB()
         actor = build_staff_actor(1, StaffRole.MODERATOR)
         target = build_target_user(2, "target-user")

@@ -18,7 +18,7 @@ See [Running Locally](README.md#running-locally) in the README. Short version:
 
 ```bash
 cp backend/.env.example backend/.env
-cp deploy/.env.local-smoke.example deploy/.env
+cp deploy/.env.local-smoke.example deploy/.env.docker
 ./deploy/scripts/docker-start.sh
 ```
 
@@ -45,20 +45,28 @@ cp deploy/.env.local-smoke.example deploy/.env
 ```bash
 # Backend
 cd backend
-./scripts/bootstrap_test_env.sh
+./scripts/bootstrap_test_env.sh            # installs requirements-dev.txt into .venv
 pytest
 ./scripts/run_targeted_security_tests.sh   # security-focused subset
 
 # nexus-mcp
 cd nexus-mcp
-npm ci && npm test
+npm ci
+npm run typecheck
+npm test
 
 # web
 cd web
 npm ci
+npm test
+npm run typecheck
 npm run lint
 npm run build
 ```
+
+Backend dependencies are split in two: `requirements.txt` is runtime-only (it is exactly
+what the production image installs) and `requirements-dev.txt` layers pytest, httpx, and a
+pinned ruff on top. Add a new test-only dependency to the dev file, never the runtime one.
 
 CI runs all of the above on every pull request; a red check blocks merge.
 

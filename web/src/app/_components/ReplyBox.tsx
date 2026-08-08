@@ -3,7 +3,6 @@
 import { tokens } from '../../styles/tokens'
 
 interface ReplyBoxProps {
-  postId: number
   value: string
   submitting: boolean
   onChange: (value: string) => void
@@ -11,7 +10,7 @@ interface ReplyBoxProps {
   onSubmit: () => void
 }
 
-export function ReplyBox({ postId, value, submitting, onChange, onCancel, onSubmit }: ReplyBoxProps) {
+export function ReplyBox({ value, submitting, onChange, onCancel, onSubmit }: ReplyBoxProps) {
   return (
     <div style={{
       marginTop: '12px',

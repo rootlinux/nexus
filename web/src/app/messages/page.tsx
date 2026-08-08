@@ -12,6 +12,7 @@ import type { Conversation as ApiConversation, Message as ApiMessage } from '../
 import { resolveMediaUrl } from '../../lib/media'
 import { getProfileHref } from '../../lib/routes'
 import { tokens, getAvatarColor } from '../../styles/tokens'
+import { UserImage } from '../../components/UserImage'
 
 interface User {
   id: number
@@ -282,7 +283,7 @@ function MessagesPageContent() {
         }}
       >
         {avatarUrl ? (
-          <img
+          <UserImage
             src={avatarUrl}
             alt={user.username}
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}

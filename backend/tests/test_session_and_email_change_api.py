@@ -52,7 +52,7 @@ class _ListResult:
         return list(self._values)
 
 
-class FakePhase5DB:
+class FakeSessionAndEmailChangeDB:
     def __init__(self):
         self.users: dict[int, User] = {}
         self.refresh_tokens: list[RefreshToken] = []
@@ -247,10 +247,10 @@ def build_refresh_token(
     )
 
 
-class Phase5AccountSecurityTests(unittest.TestCase):
+class SessionAndEmailChangeApiTests(unittest.TestCase):
     def setUp(self):
         app.dependency_overrides.clear()
-        self.db = FakePhase5DB()
+        self.db = FakeSessionAndEmailChangeDB()
 
         async def override_db():
             yield self.db

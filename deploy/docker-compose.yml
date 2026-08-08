@@ -1,23 +1,30 @@
 services:
   postgres:
-    image: postgres:15
+    # Digest-pinned; Dependabot refreshes it. See backend/Dockerfile for the rationale.
+    image: postgres:15@sha256:6eb0add3b77c081df18aa518ce43df58fdcc40f2e6d868a6fd08038dc7acd425
     container_name: nexus-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: ${POSTGRES_DB:-xplatform}
+      # Existing deployments created before the Nexus rename still hold their data in a
+      # database literally named "xplatform". POSTGRES_DB only creates a database on an
+      # empty data directory — it never renames one — so pointing an existing volume at a
+      # new name would connect to a database that does not exist. Either run the one-time
+      # rename in deploy/scripts/rename-legacy-database.sh, or pin POSTGRES_DB=xplatform
+      # in your env file. See "Renaming a pre-Nexus database" in deploy/RUNBOOK.md.
+      POSTGRES_DB: ${POSTGRES_DB:-nexus}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
     container_name: nexus-redis
     restart: unless-stopped
     environment:
@@ -38,18 +45,17 @@ services:
     environment:
       # These defaults are for the local production-like smoke stack only.
       # Real deployment values must be supplied explicitly through the deploy env file.
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-xplatform}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-nexus}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      API_PUBLIC_BASE_URL: ${API_PUBLIC_BASE_URL:-}
       APP_ENV: ${APP_ENV:-production}
       ENABLE_BOOTSTRAP_ADMIN: ${ENABLE_BOOTSTRAP_ADMIN:-false}
       BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
-      # Deprecated fallback — prefer the scoped SERVICE_TOKEN_* vars below. Inert unless
-      # ENABLE_LEGACY_ADMIN_SERVICE_TOKEN is explicitly set to true.
-      ADMIN_SERVICE_TOKEN: ${ADMIN_SERVICE_TOKEN:-}
-      ENABLE_LEGACY_ADMIN_SERVICE_TOKEN: ${ENABLE_LEGACY_ADMIN_SERVICE_TOKEN:-false}
+      # Independent least-privilege credentials for /api/admin/service/*. Leave a scope
+      # unset to deny it outright; there is no combined all-scopes token.
       SERVICE_TOKEN_READ: ${SERVICE_TOKEN_READ:-}
       SERVICE_TOKEN_NOTIFY: ${SERVICE_TOKEN_NOTIFY:-}
       SERVICE_TOKEN_DELETE: ${SERVICE_TOKEN_DELETE:-}
@@ -88,13 +94,15 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ../backend/uploads:/app/uploads
+      - ../backend/feedback_private_uploads:/app/feedback_private_uploads
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     command: >
-      sh -c "alembic upgrade head &&
+      sh -c "umask 077 &&
+             alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000"
     healthcheck:
       test:
@@ -124,8 +132,14 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://' + process.env.HOSTNAME + ':3000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 8
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     container_name: nexus-caddy
     restart: unless-stopped
     ports:
@@ -137,11 +151,24 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     environment:
-      APP_HOST: ${APP_HOST:-app.example.com}
-      API_HOST: ${API_HOST:-api.example.com}
+      # Required, not defaulted. A default here meant an unconfigured production stack
+      # silently asked Let's Encrypt for a certificate for a domain it does not own;
+      # refusing to start is the better failure. The local stack supplies the
+      # localtest.me hostnames via deploy/.env.docker (the local Caddyfile hardcodes
+      # them anyway and ignores these values).
+      APP_HOST: ${APP_HOST:?APP_HOST is required — the public hostname Caddy serves the web app on}
+      API_HOST: ${API_HOST:?API_HOST is required — the public hostname Caddy serves the API on}
     depends_on:
-      - web
-      - backend
+      web:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2019/config/"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 8
 
 volumes:
   postgres_data:

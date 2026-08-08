@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Ellipsis, Shield, Trash2 } from 'lucide-react'
+import { Ellipsis, Shield } from 'lucide-react'
 
 import { tokens } from '../../styles/tokens'
 

@@ -92,7 +92,7 @@ class _ListResult:
         return list(self._values)
 
 
-class FakePhase1DB:
+class FakeStaffAssignmentDB:
     SESSION_ID = 999
 
     def __init__(self):
@@ -164,14 +164,14 @@ class FakePhase1DB:
             self.staff_permission = None
 
 
-class StaffPhase1ApiTests(unittest.TestCase):
+class StaffAssignmentApiTests(unittest.TestCase):
     def setUp(self):
         app.dependency_overrides.clear()
 
     def tearDown(self):
         app.dependency_overrides.clear()
 
-    def _build_client(self, db: FakePhase1DB, actor: User) -> TestClient:
+    def _build_client(self, db: FakeStaffAssignmentDB, actor: User) -> TestClient:
         async def override_db():
             yield db
 
@@ -182,7 +182,7 @@ class StaffPhase1ApiTests(unittest.TestCase):
         app.dependency_overrides[require_admin_session] = override_staff
         return TestClient(app, base_url="http://localhost")
 
-    def _build_db_only_client(self, db: FakePhase1DB) -> TestClient:
+    def _build_db_only_client(self, db: FakeStaffAssignmentDB) -> TestClient:
         async def override_db():
             yield db
 
@@ -190,7 +190,7 @@ class StaffPhase1ApiTests(unittest.TestCase):
         return TestClient(app, base_url="http://localhost")
 
     def test_staff_create_rejects_unknown_permission_field(self):
-        db = FakePhase1DB()
+        db = FakeStaffAssignmentDB()
         db.target_user = build_target_user(22, "candidate")
         actor = build_staff_actor(1, StaffRole.SUPER_ADMIN, can_manage_moderators=True)
         client = self._build_client(db, actor)
@@ -211,7 +211,7 @@ class StaffPhase1ApiTests(unittest.TestCase):
         self.assertIn("dangerous_field", response.text)
 
     def test_admin_cannot_create_super_admin_via_route(self):
-        db = FakePhase1DB()
+        db = FakeStaffAssignmentDB()
         db.target_user = build_target_user(22, "candidate")
         actor = build_staff_actor(1, StaffRole.ADMIN, can_manage_moderators=True)
         client = self._build_client(db, actor)
@@ -237,8 +237,8 @@ class StaffPhase1ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    def test_create_update_and_delete_staff_emit_phase1_audit_events(self):
-        db = FakePhase1DB()
+    def test_create_update_and_delete_staff_emit_audit_events(self):
+        db = FakeStaffAssignmentDB()
         db.target_user = build_target_user(22, "candidate")
         actor = build_staff_actor(1, StaffRole.SUPER_ADMIN, can_manage_moderators=True)
         client = self._build_client(db, actor)
@@ -305,7 +305,7 @@ class StaffPhase1ApiTests(unittest.TestCase):
             self.assertEqual(delete_call["before"]["invite_quota_monthly"], 7)
 
     def test_moderator_invite_create_denied_without_permission(self):
-        db = FakePhase1DB()
+        db = FakeStaffAssignmentDB()
         actor = build_staff_actor(1, StaffRole.MODERATOR, can_create_invites=False, invite_quota_monthly=5)
         client = self._build_client(db, actor)
 
@@ -314,7 +314,7 @@ class StaffPhase1ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_moderator_invite_quota_is_enforced_server_side(self):
-        db = FakePhase1DB()
+        db = FakeStaffAssignmentDB()
         db.invite_count = 2
         actor = build_staff_actor(1, StaffRole.MODERATOR, can_create_invites=True, invite_quota_monthly=2)
         client = self._build_client(db, actor)
@@ -326,7 +326,7 @@ class StaffPhase1ApiTests(unittest.TestCase):
         self.assertIn("Monthly invite quota exceeded", response.text)
 
     def test_admin_invite_create_bypasses_quota_and_writes_audit(self):
-        db = FakePhase1DB()
+        db = FakeStaffAssignmentDB()
         actor = build_staff_actor(1, StaffRole.ADMIN, can_create_invites=True, can_manage_invites=True, invite_quota_monthly=None)
         client = self._build_client(db, actor)
 
@@ -335,7 +335,7 @@ class StaffPhase1ApiTests(unittest.TestCase):
             "app.api.routes.invite.write_audit_log",
             audit_mock,
         ), patch("app.api.routes.invite.generate_invite_code", return_value="A" * 32):
-            response = client.post("/api/invite/create", json={"internal_note": "phase1"})
+            response = client.post("/api/invite/create", json={"internal_note": "moderator invite attempt"})
 
         self.assertEqual(response.status_code, 201)
         create_call = audit_mock.await_args_list[0].kwargs
@@ -346,7 +346,7 @@ class StaffPhase1ApiTests(unittest.TestCase):
         self.assertIsNone(create_call["after"]["invite_quota_monthly"])
 
     def test_admin_session_reports_current_capabilities(self):
-        db = FakePhase1DB()
+        db = FakeStaffAssignmentDB()
         actor = build_staff_actor(
             1,
             StaffRole.ADMIN,
@@ -378,7 +378,7 @@ class StaffPhase1ApiTests(unittest.TestCase):
         self.assertFalse(payload["capabilities"]["can_manage_moderators"])
 
     def test_freeze_route_writes_moderation_action_taken(self):
-        db = FakePhase1DB()
+        db = FakeStaffAssignmentDB()
         db.target_user = build_target_user(33, "freezee")
         actor = build_staff_actor(1, StaffRole.ADMIN, can_manage_users=True)
         client = self._build_client(db, actor)
@@ -396,7 +396,7 @@ class StaffPhase1ApiTests(unittest.TestCase):
         self.assertEqual(audit_call["after"]["action"], "freeze_user")
 
     def test_moderation_queue_suspend_writes_user_and_signal_audits(self):
-        db = FakePhase1DB()
+        db = FakeStaffAssignmentDB()
         db.target_user = build_target_user(44, "queued-user")
         db.signal = ModerationSignal(
             id=91,
@@ -424,13 +424,13 @@ class StaffPhase1ApiTests(unittest.TestCase):
         self.assertIn("moderation_action_taken", actions)
 
     def test_require_admin_session_rejects_legacy_admin_without_staff_permissions(self):
-        db = FakePhase1DB()
+        db = FakeStaffAssignmentDB()
         db.target_user = build_target_user(55, "legacy-only")
         client = self._build_db_only_client(db)
 
         with patch(
             "app.core.signing_keys.jwt.decode",
-            return_value={"purpose": "jwt_access_token", "sub": "55", "sid": str(FakePhase1DB.SESSION_ID), "username": "legacy-only", "admin_role": "super_admin", "exp": 9999999999},
+            return_value={"purpose": "jwt_access_token", "sub": "55", "sid": str(FakeStaffAssignmentDB.SESSION_ID), "username": "legacy-only", "admin_role": "super_admin", "exp": 9999999999},
         ):
             response = client.get("/api/admin/search?q=ab", headers={"Authorization": "Bearer legacy-token"})
 
@@ -438,7 +438,7 @@ class StaffPhase1ApiTests(unittest.TestCase):
         self.assertIn("Admin session required", response.text)
 
     def test_auth_me_ignores_crafted_legacy_admin_role_without_staff_permissions(self):
-        db = FakePhase1DB()
+        db = FakeStaffAssignmentDB()
         db.target_user = build_target_user(66, "crafted-claims")
         client = self._build_db_only_client(db)
 
@@ -454,7 +454,7 @@ class StaffPhase1ApiTests(unittest.TestCase):
         self.assertIsNone(body["admin_role"])
 
     def test_auth_me_derives_admin_flags_from_staff_permissions_when_legacy_columns_disagree(self):
-        db = FakePhase1DB()
+        db = FakeStaffAssignmentDB()
         db.target_user = build_staff_actor(67, StaffRole.SUPER_ADMIN, can_manage_moderators=True)
         client = self._build_db_only_client(db)
 

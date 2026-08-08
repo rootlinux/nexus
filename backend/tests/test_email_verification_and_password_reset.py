@@ -302,7 +302,7 @@ def build_invite(code: str, creator: User) -> InviteCode:
     return invite
 
 
-class AccountSecurityPhase4Tests(unittest.TestCase):
+class EmailVerificationAndPasswordResetTests(unittest.TestCase):
     def setUp(self):
         app.dependency_overrides.clear()
         self.db = FakeAccountSecurityDB()

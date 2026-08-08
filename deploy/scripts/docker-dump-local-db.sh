@@ -10,7 +10,7 @@ SRC_PGHOST="${SRC_PGHOST:-localhost}"
 SRC_PGPORT="${SRC_PGPORT:-5432}"
 SRC_PGUSER="${SRC_PGUSER:-postgres}"
 SRC_PGPASSWORD="${SRC_PGPASSWORD:-postgres}"
-SRC_PGDATABASE="${SRC_PGDATABASE:-xplatform}"
+SRC_PGDATABASE="${SRC_PGDATABASE:-nexus}"
 
 mkdir -p "$INITDB_DIR"
 mkdir -p "$(dirname "$OUTPUT_FILE")"

@@ -9,6 +9,7 @@ import { getAvatarColor, tokens } from '../../styles/tokens'
 import { BrandLogo } from '../BrandLogo'
 import { SidebarNavItem } from './SidebarNavItem'
 import type { LayoutNavItem, LayoutProfileSummary } from './types'
+import { UserImage } from '../UserImage'
 
 interface SidebarProps {
   navItems: LayoutNavItem[]
@@ -104,7 +105,7 @@ export function Sidebar({ navItems, isActive, profile }: SidebarProps) {
             }}
           >
             {profile.avatarUrl ? (
-              <img src={profile.avatarUrl} alt={profile.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <UserImage src={profile.avatarUrl} alt={profile.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             ) : (
               profile.username.charAt(0).toUpperCase()
             )}

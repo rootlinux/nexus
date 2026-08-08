@@ -2,6 +2,7 @@
 
 import { tokens } from '../../styles/tokens'
 import { resolveMediaUrl } from '../../lib/media'
+import { UserImage } from '../../components/UserImage'
 
 interface AvatarProps {
   username: string
@@ -28,7 +29,7 @@ export function Avatar({ username, avatarUrl, size = 40 }: AvatarProps) {
       overflow: 'hidden',
     }}>
       {avatarUrl ? (
-        <img src={resolveMediaUrl(avatarUrl) || undefined} alt={username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        <UserImage src={resolveMediaUrl(avatarUrl) || undefined} alt={username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       ) : (
         initial
       )}

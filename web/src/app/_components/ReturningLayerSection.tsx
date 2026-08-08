@@ -9,7 +9,7 @@ import {
   notificationPrimaryPost,
   type RecentConversationState,
 } from '../../lib/reentry'
-import { getPostHref, type ConversationEntryPoint } from '../../lib/routes'
+import { getPostHref } from '../../lib/routes'
 
 interface ReturningLayerSectionProps {
   recentConversation: RecentConversationState | null

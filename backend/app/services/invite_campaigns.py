@@ -44,12 +44,12 @@ def normalize_campaign_slug(value: str) -> str:
     normalized = SLUG_PATTERN.sub("-", value.strip().lower()).strip("-")
     if not normalized:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Campaign slug must contain letters or numbers",
         )
     if len(normalized) > 80:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Campaign slug must be 80 characters or fewer",
         )
     return normalized

@@ -12,6 +12,7 @@ import { resolveMediaUrl } from '../../lib/media'
 import { getDiscoverUsers, getDiscoverPosts, toggleFollow } from '../../lib/api'
 import type { DiscoverUser, DiscoverUsersResponse } from '../../lib/api'
 import type { DiscoveryFeedResponse } from '../../types'
+import { UserImage } from '../../components/UserImage'
 
 // ---------------------------------------------------------------------------
 // User card (inside horizontal scroll)
@@ -76,7 +77,7 @@ function UserCard({ user }: UserCardProps) {
         marginBottom: '4px',
       }}>
         {avatarUrl ? (
-          <img src={avatarUrl} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <UserImage src={avatarUrl} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         ) : initials}
       </div>
 

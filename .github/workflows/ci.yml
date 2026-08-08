@@ -11,6 +11,13 @@ on:
 permissions:
   contents: read
 
+# Third-party actions are pinned to immutable commit SHAs rather than tags. A tag is a
+# mutable pointer: whoever controls the action repository can retarget v7 at new code, and
+# every workflow that references it executes that code with this repository checked out.
+# The trailing comment records the human-readable release so a reader can tell what the
+# SHA is, and Dependabot's github-actions ecosystem updates SHA + comment together.
+# Service-container images are pinned by digest for the same reason.
+
 env:
   # Kept in sync with the Node version pinned in web/Dockerfile.
   NODE_LTS_VERSION: '22'
@@ -20,11 +27,11 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:15
+        image: postgres:15@sha256:6eb0add3b77c081df18aa518ce43df58fdcc40f2e6d868a6fd08038dc7acd425
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: xplatform_test
+          POSTGRES_DB: nexus_test
         ports:
           - 5432:5432
         options: >-
@@ -33,7 +40,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redis:
-        image: redis:7
+        image: redis:7@sha256:e9b2e45ecd47fbb69b877cf8d045d5cccaaaed52524b6e098b4abe8212994f73
         ports:
           - 6379:6379
         options: >-
@@ -42,20 +49,20 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: cd backend && pip install -r requirements.txt
+        # requirements-dev.txt pulls in requirements.txt first, then the test/lint tooling
+        # that is deliberately absent from the production image.
+        run: cd backend && pip install -r requirements-dev.txt
       - name: Run linting
-        # Pinned: an unpinned `pip install ruff` picks up whatever is newest at CI-run
-        # time, and ruff's default rule set has changed between minor versions (0.16
-        # added rules like import-sort and datetime-tzinfo checks that 0.15 didn't
-        # enable by default) — that turned a routine PR into a 300+ finding pre-existing
-        # lint backlog with no code change involved. Bump this deliberately, in its own
-        # commit, when actually adopting a newer ruff's rule set.
-        run: cd backend && pip install ruff==0.15.16 && ruff check app/
+        # ruff's version is pinned in requirements-dev.txt, not here: an unpinned install
+        # picks up whatever is newest at CI-run time, and ruff enables new rules in minor
+        # releases — which once turned a routine PR into a 300+ finding pre-existing lint
+        # backlog with no code change involved. Bump it there, deliberately, in its own commit.
+        run: cd backend && ruff check app/
       - name: Run database migrations
         # Most tests override the DB dependency with an in-process fake and never touch
         # Postgres, but a handful (test_push_notifications.py, test_release_blockers.py)
@@ -63,25 +70,31 @@ jobs:
         # need the schema to already exist. Nothing else in this job creates it.
         run: cd backend && alembic upgrade head
         env:
-          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/xplatform_test
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/nexus_test
           REDIS_URL: redis://localhost:6379/0
           SECRET_KEY: ci-test-secret-key-not-used-in-production-000000000000000000000000000000
       - name: Run tests
         run: cd backend && python -m pytest tests/ -x -q
         env:
-          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/xplatform_test
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/nexus_test
           REDIS_URL: redis://localhost:6379/0
           SECRET_KEY: ci-test-secret-key-not-used-in-production-000000000000000000000000000000
 
   web-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_LTS_VERSION }}
       - name: Install
         run: cd web && npm ci
+      - name: Test
+        run: cd web && npm test
+      - name: Typecheck
+        # An explicit gate. `next build` type-checks only what it bundles, so a type error
+        # in a test helper or an unreferenced module can sail past it.
+        run: cd web && npm run typecheck
       - name: Lint
         run: cd web && npm run lint
       - name: Build
@@ -90,18 +103,36 @@ jobs:
   mcp-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_LTS_VERSION }}
-      - name: Install and test
-        run: cd nexus-mcp && npm ci && npm test
+      - name: Install
+        run: cd nexus-mcp && npm ci
+      - name: Typecheck
+        run: cd nexus-mcp && npm run typecheck
+      - name: Test
+        run: cd nexus-mcp && npm test
 
   container-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build backend image
         run: docker build -f backend/Dockerfile -t nexus-backend:ci backend
       - name: Build web image
         run: docker build -f web/Dockerfile -t nexus-web:ci web
+      - name: Validate Compose configuration
+        # Catches YAML/interpolation errors in the deploy stack before they reach a server.
+        # Values are throwaway locals purely to satisfy the `:?required` guards.
+        run: |
+          docker compose \
+            -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.local.yml \
+            config --quiet
+        env:
+          POSTGRES_PASSWORD: ci-compose-validation-only
+          REDIS_PASSWORD: ci-compose-validation-only
+          SECRET_KEY: ci-compose-validation-only
+          APP_HOST: app.ci-validation.invalid
+          API_HOST: api.ci-validation.invalid

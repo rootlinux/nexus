@@ -14,5 +14,6 @@ tests/
 .mypy_cache
 .ruff_cache
 uploads
+feedback_private_uploads
 tmp/
 uvicorn.log

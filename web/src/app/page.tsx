@@ -19,9 +19,7 @@ import type { FeedResponse, Notification, Post } from '../types'
 import { FileText } from 'lucide-react'
 
 // Components
-import { Avatar } from './_components/Avatar'
 import { PostSkeleton, EmptyState, ErrorState } from './_components/FeedStates'
-import { ActivationRouteCard } from './_components/ActivationRouteCard'
 import { ArrivalSection } from './_components/ArrivalSection'
 import { ActivationSection } from './_components/ActivationSection'
 import { ReturningLayerSection } from './_components/ReturningLayerSection'
@@ -99,7 +97,7 @@ export default function Home() {
   )
 
   // Toast state
-  const [toast, setToast] = useState<{ message: string; visible: boolean }>({ message: '', visible: false })
+  const [, setToast] = useState<{ message: string; visible: boolean }>({ message: '', visible: false })
 
   // Sync arrival state
   useEffect(() => {

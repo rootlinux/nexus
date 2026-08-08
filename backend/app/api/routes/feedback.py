@@ -393,7 +393,7 @@ async def _parse_feedback_payload(request: Request) -> tuple[FeedbackReportReque
         payload = FeedbackReportRequest.model_validate(await request.json())
         return payload, None
     except ValidationError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.errors()) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
 
 
 @router.post("/report", response_model=NeutralActionResponse)

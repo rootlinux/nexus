@@ -3,7 +3,6 @@
 import { tokens } from '../../styles/tokens'
 import { Avatar } from './Avatar'
 import { PostHeader } from '../../components/PostSurface'
-import { MemberTrustLine } from '../../components/PostSurface'
 import { formatRelativeTime } from '../../components/PostSurface'
 
 interface Reply {

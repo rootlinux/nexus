@@ -70,6 +70,7 @@ Nexus\ Redesign\ Spec.html
 
 # AI/agent workflow scratch space (not product documentation)
 docs/superpowers/
+.handoff/
 
 # Nested directory (should not be committed)
 X/

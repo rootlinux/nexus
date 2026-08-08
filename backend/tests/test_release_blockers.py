@@ -9,9 +9,9 @@ class ReleaseBlockerRegressionTests(unittest.TestCase):
     def test_release_blockers_runtime_paths(self):
         env = dict(os.environ)
         # setdefault, not an override: inherit whatever DATABASE_URL the outer test run
-        # is already using (e.g. CI's xplatform_test) rather than forcing a "xplatform"
+        # is already using (e.g. CI's nexus_test) rather than forcing a "nexus"
         # database that may not exist there.
-        env.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/xplatform")
+        env.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/nexus")
         env.setdefault("REDIS_URL", "redis://localhost:6379/0")
         env.setdefault("SECRET_KEY", "release-blocker-test-secret")
         env["DEBUG"] = "false"

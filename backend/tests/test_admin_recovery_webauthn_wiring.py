@@ -8,7 +8,7 @@ MIGRATION = ROOT / "alembic" / "versions" / "032_admin_recovery_webauthn_timesta
 COMPOSE_FILE = REPO_ROOT / "deploy" / "docker-compose.yml"
 
 
-class AdminRecoveryA1StabilizationTests(unittest.TestCase):
+class AdminRecoveryWebAuthnWiringTests(unittest.TestCase):
     def test_webauthn_credential_timezone_fix_migration_exists(self):
         self.assertTrue(MIGRATION.exists())
 

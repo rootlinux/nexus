@@ -6,17 +6,28 @@ you find a vulnerability, please report it responsibly.
 
 ## Reporting a Vulnerability
 
-**Do not open a public GitHub issue for security vulnerabilities.**
+**Do not open a public GitHub issue for security vulnerabilities**, and do not
+disclose the issue publicly (blog post, social media, conference talk) before
+a fix is available.
 
-Preferred: use [GitHub's private security advisory reporting](../../security/advisories/new)
-for this repository. This lets us discuss and fix the issue before it's
-public.
+Report through
+[GitHub's private vulnerability reporting](https://github.com/rootlinux/nexus/security/advisories/new)
+for this repository. That is the only reporting channel — there is no
+dedicated security mailbox for this project, and any email address claiming to
+be one is not ours. Private advisories let us discuss and fix the issue before
+it becomes public, and GitHub notifies you of every update on the thread.
 
-If that's not available, email `beta@example.com` with:
+Please include:
 
 - A description of the vulnerability and its impact
 - Steps to reproduce (proof-of-concept code or requests welcome)
 - The affected component (`backend/`, `web/`, `nexus-mcp/`, `deploy/`)
+- The commit SHA or branch you tested against
+
+If private vulnerability reporting is disabled for your account or otherwise
+unavailable to you, open a **public issue containing no technical detail** —
+just "I would like to report a security issue privately" — and a private
+channel will be opened from there.
 
 ## Scope
 
@@ -33,6 +44,15 @@ Out of scope:
 - Denial-of-service via brute-force volume rather than a logic flaw
 - Issues in third-party dependencies — report those upstream, but let us know
   if Nexus is affected
+- Anything that depends on a development-only escape hatch being enabled
+  (`ENABLE_BOOTSTRAP_ADMIN`, `ENABLE_ADMIN_WEBAUTHN_RECOVERY`). Both are
+  rejected at startup when `APP_ENV` is a production value — a report that
+  *those startup guards can be bypassed* is very much in scope.
+
+## Supported Versions
+
+Nexus is a single-deployment project with no released versions. Only the
+current `main` branch is supported; there are no backports to older commits.
 
 ## Response
 

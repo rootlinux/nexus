@@ -1,3 +1,5 @@
 -- Deploy init intentionally left schema-empty.
 -- The backend container runs `alembic upgrade head` after startup; do not place
 -- fixture rows, password hashes, invite codes, or bootstrap identities here.
+-- (Files here only ever execute against an empty PGDATA, so renaming this one is
+-- safe for existing volumes — nothing in docker-entrypoint-initdb.d re-runs.)
