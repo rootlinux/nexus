@@ -3,11 +3,13 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# Alembic revision filenames are immutable history — renaming one would break the
+# migration chain for every existing deployment. The milestone wording stays.
 MIGRATION = ROOT / "alembic" / "versions" / "022_phase4_account_security.py"
 CANONICALIZATION_MIGRATION = ROOT / "alembic" / "versions" / "023_email_canonicalization.py"
 
 
-class Phase4AccountSecurityMigrationTests(unittest.TestCase):
+class AccountSecurityMigrationTests(unittest.TestCase):
     def test_migration_file_exists(self):
         self.assertTrue(MIGRATION.exists())
         self.assertTrue(CANONICALIZATION_MIGRATION.exists())

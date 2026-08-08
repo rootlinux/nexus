@@ -1,18 +1,5 @@
 import type { NextConfig } from "next";
 
-function resolveCspSource(urlValue?: string) {
-  const candidate = urlValue?.trim();
-  if (!candidate) {
-    return null;
-  }
-
-  try {
-    return new URL(candidate).origin;
-  } catch {
-    return candidate.replace(/\/$/, '');
-  }
-}
-
 const isProd = process.env.NODE_ENV === 'production';
 
 const nextConfig: NextConfig = {
@@ -32,7 +19,7 @@ const nextConfig: NextConfig = {
             key: 'Permissions-Policy',
             value: 'camera=(), microphone=(), geolocation=(), payment=()',
           },
-          // CSP header is set in src/middleware.ts with per-request nonce
+          // CSP header is set in src/proxy.ts with a per-request nonce
         ],
       },
       {

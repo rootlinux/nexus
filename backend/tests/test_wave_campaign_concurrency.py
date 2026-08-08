@@ -16,7 +16,7 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
 
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/xplatform")
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/nexus")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("SECRET_KEY", secrets.token_hex(32))
 
@@ -51,7 +51,7 @@ def _resolve_disposable_pg_target() -> dict[str, str]:
     on 5432. The host is required to be loopback: this suite creates and drops
     databases and must never be pointed at a real or remote server."""
     base_url = os.environ.get(
-        "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/xplatform"
+        "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/nexus"
     )
     parsed = urlsplit(base_url)
     host = parsed.hostname or "localhost"
@@ -69,9 +69,9 @@ def _resolve_disposable_pg_target() -> dict[str, str]:
     }
 
 
-class Phase3WaveCampaignConcurrencyTests(unittest.IsolatedAsyncioTestCase):
+class WaveCampaignConcurrencyTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.prefix = f"phase3c_{uuid4().hex[:8]}"
+        self.prefix = f"wavecc_{uuid4().hex[:8]}"
         self.db_name = f"{self.prefix}_db"
         self._pg_target = _resolve_disposable_pg_target()
         self.database_url = (
@@ -385,7 +385,7 @@ class Phase3WaveCampaignConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                             "username": username,
                             "display_name": username,
                             "email": f"{username}@example.com",
-                            "password": "Phase3Password123!",
+                            "password": "WaveCampaignPassword123!",
                             "invite_code": invite.code,
                         },
                     )

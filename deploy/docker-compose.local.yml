@@ -1,0 +1,26 @@
+services:
+  backend:
+    environment:
+      APP_ENV: development
+      API_PUBLIC_BASE_URL: http://api.nexus.localtest.me
+      ALLOWED_HOSTS: api.nexus.localtest.me
+      CORS_ALLOWED_ORIGINS: http://app.nexus.localtest.me
+      WEBAUTHN_RP_ID: app.nexus.localtest.me
+      WEBAUTHN_ORIGIN: http://app.nexus.localtest.me
+      WEB_BASE_URL: http://app.nexus.localtest.me
+      REFRESH_COOKIE_SECURE: "false"
+
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://api.nexus.localtest.me
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://api.nexus.localtest.me
+
+  caddy:
+    ports: !override
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+      - "127.0.0.1:443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro

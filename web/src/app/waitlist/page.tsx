@@ -2,7 +2,6 @@
 
 import { type CSSProperties, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { CheckCircle2, LoaderCircle } from 'lucide-react'
 
 import { BrandLogo } from '../../components/BrandLogo'
@@ -53,7 +52,6 @@ function normalizeError(error: unknown): string {
 }
 
 export default function WaitlistPage() {
-  const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')

@@ -11,9 +11,9 @@ clients (Claude Desktop, or any other MCP-compatible client).
   tool of any kind. This is enforced by test coverage
   (`src/tools.test.ts`), not just convention.
 - **Scoped credential only.** Configure this server with the backend's
-  `SERVICE_TOKEN_READ` value — never `SERVICE_TOKEN_NOTIFY`,
-  `SERVICE_TOKEN_DELETE`, or the deprecated all-scopes `ADMIN_SERVICE_TOKEN`.
-  A read-scoped token cannot perform notify or delete operations even if a
+  `SERVICE_TOKEN_READ` value — never `SERVICE_TOKEN_NOTIFY` or
+  `SERVICE_TOKEN_DELETE`. The backend has no combined all-scopes credential,
+  so a read-scoped token cannot perform notify or delete operations even if a
   future tool were added to call them.
 - **HTTPS required by default.** `NEXUS_API_BASE_URL` must be `https://`
   unless it is `localhost`/`127.0.0.1`/`::1`, or an internal hostname you've

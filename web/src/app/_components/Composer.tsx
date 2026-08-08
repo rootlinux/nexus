@@ -4,6 +4,7 @@ import { useRef, useEffect, useState, type FormEvent, type KeyboardEvent } from 
 import { Image as ImageIcon, Smile } from 'lucide-react'
 import { tokens } from '../../styles/tokens'
 import { Avatar } from './Avatar'
+import { UserImage } from '../../components/UserImage'
 
 interface ComposerProps {
   username: string
@@ -128,7 +129,7 @@ export function Composer({
               overflow: 'hidden',
               border: `1px solid ${tokens.colors.border}`,
             }}>
-              <img
+              <UserImage
                 src={imagePreview}
                 alt="Preview"
                 style={{

@@ -60,7 +60,7 @@ class _FakeEnum(sa.String):
         return None
 
 
-class StaffPhase1MigrationTests(unittest.TestCase):
+class StaffPermissionsBackfillMigrationTests(unittest.TestCase):
     def test_migration_upgrade_backfills_staff_permissions(self):
         engine = sa.create_engine("sqlite:///:memory:")
         with engine.begin() as connection:

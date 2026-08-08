@@ -20,7 +20,6 @@ interface WaitlistApplicationDetail extends WaitlistApplicationResponse {
 }
 
 interface WaitlistAdminPanelProps {
-  token: string
   canManage: boolean
 }
 
@@ -43,7 +42,7 @@ const getInputStyle = (): React.CSSProperties => ({
   boxSizing: 'border-box',
 })
 
-export default function WaitlistAdminPanel({ token, canManage }: WaitlistAdminPanelProps) {
+export default function WaitlistAdminPanel({ canManage }: WaitlistAdminPanelProps) {
   const [applications, setApplications] = useState<WaitlistApplicationResponse[]>([])
   const [selectedApp, setSelectedApp] = useState<WaitlistApplicationDetail | null>(null)
   const [isLoading, setIsLoading] = useState(false)

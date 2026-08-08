@@ -163,7 +163,7 @@ class FeedbackReportApiTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             settings.MAIL_PROVIDER = "capture"
             settings.MAIL_CAPTURE_DIR = temp_dir
-            settings.FEEDBACK_REPORT_TO_EMAIL = "beta@example.com"
+            settings.FEEDBACK_REPORT_TO_EMAIL = "feedback@nexus.test"
 
             with patch("app.core.rate_limit._hit_redis_limit", new=AsyncMock(side_effect=RedisError("down"))):
                 client = self._client()
@@ -191,7 +191,7 @@ class FeedbackReportApiTests(unittest.TestCase):
             captured_files = list(Path(temp_dir).glob("*.json"))
             self.assertEqual(len(captured_files), 1)
             payload = captured_files[0].read_text(encoding="utf-8")
-            self.assertIn('"to_email": "beta@example.com"', payload)
+            self.assertIn('"to_email": "feedback@nexus.test"', payload)
             self.assertIn("[Nexus] Feed froze after refresh", payload)
             self.assertIn("Safari 17 on iPhone, standalone PWA", payload)
             self.assertIn("reply@example.com", payload)
@@ -203,7 +203,7 @@ class FeedbackReportApiTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             settings.MAIL_PROVIDER = "capture"
             settings.MAIL_CAPTURE_DIR = temp_dir
-            settings.FEEDBACK_REPORT_TO_EMAIL = "beta@example.com"
+            settings.FEEDBACK_REPORT_TO_EMAIL = "feedback@nexus.test"
             with patch("app.core.rate_limit._hit_redis_limit", new=AsyncMock(side_effect=RedisError("down"))):
                 client = self._client()
                 response = client.post(
@@ -264,7 +264,7 @@ class FeedbackReportApiTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             settings.MAIL_PROVIDER = "capture"
             settings.MAIL_CAPTURE_DIR = temp_dir
-            settings.FEEDBACK_REPORT_TO_EMAIL = "beta@example.com"
+            settings.FEEDBACK_REPORT_TO_EMAIL = "feedback@nexus.test"
             with patch("app.core.rate_limit._hit_redis_limit", new=AsyncMock(side_effect=RedisError("down"))):
                 client = self._client()
                 response = client.post(
@@ -360,7 +360,7 @@ class FeedbackReportApiTests(unittest.TestCase):
             os.environ["TMPDIR"] = tmp_dir
             settings.MAIL_PROVIDER = "capture"
             settings.MAIL_CAPTURE_DIR = "tmp/mail"
-            settings.FEEDBACK_REPORT_TO_EMAIL = "beta@example.com"
+            settings.FEEDBACK_REPORT_TO_EMAIL = "feedback@nexus.test"
             try:
                 with patch("app.core.rate_limit._hit_redis_limit", new=AsyncMock(side_effect=RedisError("down"))):
                     client = self._client()

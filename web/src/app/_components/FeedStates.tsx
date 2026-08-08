@@ -2,7 +2,7 @@
 
 import { tokens } from '../../styles/tokens'
 import type { LucideIcon } from 'lucide-react'
-import { AlertCircle, FileText } from 'lucide-react'
+import { AlertCircle } from 'lucide-react'
 
 export function PostSkeleton() {
   return (

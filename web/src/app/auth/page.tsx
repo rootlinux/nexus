@@ -3,7 +3,7 @@
 import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2, KeyRound, LoaderCircle, ShieldCheck } from 'lucide-react'
+import { LoaderCircle } from 'lucide-react'
 
 import { requestEmailVerification, requestPasswordReset } from '../../lib/api'
 import { BrandLogo } from '../../components/BrandLogo'
@@ -12,7 +12,6 @@ import { useAuth } from '../../contexts/AuthContext'
 import { tokens } from '../../styles/tokens'
 
 type AuthMode = 'login' | 'create' | 'forgotPassword'
-type InviteTone = 'neutral' | 'success' | 'danger'
 
 interface PendingVerificationState {
   email: string
@@ -424,6 +423,15 @@ export default function AuthPage() {
               }}
             >
               {error}
+              {error.startsWith('Admin accounts require a security key') && (
+                <>
+                  {' '}
+                  <Link href="/auth/admin-enrollment" style={{ color: 'inherit', textDecoration: 'underline' }}>
+                    Enrol this account&rsquo;s first passkey
+                  </Link>
+                  .
+                </>
+              )}
             </div>
           )}
 

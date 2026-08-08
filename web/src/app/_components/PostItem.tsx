@@ -189,7 +189,6 @@ export function PostItem({
           {/* Reply box */}
           {replyingTo === displayPost.id && (
             <ReplyBox
-              postId={displayPost.id}
               value={replyContent[displayPost.id] || ''}
               submitting={submittingReply === displayPost.id}
               onChange={(value) => onReplyContentChange(displayPost.id, value)}

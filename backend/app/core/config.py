@@ -112,13 +112,10 @@ class Settings(BaseSettings):
     ENABLE_ADMIN_WEBAUTHN_RECOVERY: bool = False
     ADMIN_WEBAUTHN_RECOVERY_IDENTIFIER: Optional[str] = None
     ADMIN_WEBAUTHN_RECOVERY_TOKEN_TTL_MINUTES: int = 10
-    # Deprecated: a single token granting read+notify+delete on /api/admin/service/*.
-    # Inert by default — set ENABLE_LEGACY_ADMIN_SERVICE_TOKEN=true to activate it as a
-    # fallback while migrating to the scoped SERVICE_TOKEN_* credentials below. See
-    # app/api/dependencies/service_auth.py. Scheduled for removal once no deployment
-    # depends on it — see README's service-token migration note.
-    ADMIN_SERVICE_TOKEN: str = ""
-    ENABLE_LEGACY_ADMIN_SERVICE_TOKEN: bool = False
+    # /api/admin/service/* is authenticated by these three independent, least-privilege
+    # credentials — there is deliberately no combined "all scopes" token. An unset value
+    # means that scope has no valid credential at all and every request for it is denied.
+    # See app/api/dependencies/service_auth.py.
     SERVICE_TOKEN_READ: str = ""
     SERVICE_TOKEN_NOTIFY: str = ""
     SERVICE_TOKEN_DELETE: str = ""
@@ -188,7 +185,12 @@ class Settings(BaseSettings):
     MAIL_FROM_EMAIL: str = "no-reply@nexus.local"
     MAIL_FROM_NAME: str = "Nexus"
     RESEND_API_KEY: str = ""
-    FEEDBACK_REPORT_TO_EMAIL: str = "beta@example.com"
+    # Where in-app "report a problem" submissions are mailed. Intentionally empty by
+    # default: the previous default was a placeholder example.com address, which meant an
+    # unconfigured production deployment mailed real user reports (and signed attachment
+    # links) into a black hole with no error. Validated below whenever a real mail
+    # provider is configured in production.
+    FEEDBACK_REPORT_TO_EMAIL: str = ""
     FEEDBACK_ATTACHMENT_MAX_BYTES: int = 5 * 1024 * 1024
     FEEDBACK_ATTACHMENT_STORAGE_SUBDIR: str = "feedback"
     FEEDBACK_ATTACHMENT_LOCAL_DIR: str = "feedback_private_uploads"
@@ -366,9 +368,19 @@ class Settings(BaseSettings):
                 )
 
         if self.ENABLE_ADMIN_WEBAUTHN_RECOVERY:
-            if app_env not in {"staging", "stage", "test", "testing"}:
+            # This is the only way a privileged account can enrol its *first* passkey:
+            # /webauthn/register/begin needs a session, and a staff account cannot get a
+            # session without a passkey. So it must be reachable in local development,
+            # not just staging — otherwise a fresh install has no supported path to a
+            # working admin at all. It stays opt-in and non-production: an explicit
+            # allowlist (not a production denylist) means an unrecognised APP_ENV is
+            # refused rather than assumed safe, and the redundant is_production check
+            # below holds even if this allowlist is later edited carelessly.
+            if self.is_production:
+                raise ValueError("ENABLE_ADMIN_WEBAUTHN_RECOVERY must never be enabled in production")
+            if app_env not in {"development", "dev", "local", "test", "testing", "staging", "stage"}:
                 raise ValueError(
-                    "ENABLE_ADMIN_WEBAUTHN_RECOVERY is only allowed in staging/test environments"
+                    "ENABLE_ADMIN_WEBAUTHN_RECOVERY is only allowed in local/dev/test/staging environments"
                 )
             if not self.ADMIN_WEBAUTHN_RECOVERY_IDENTIFIER or not self.ADMIN_WEBAUTHN_RECOVERY_IDENTIFIER.strip():
                 raise ValueError(
@@ -376,22 +388,6 @@ class Settings(BaseSettings):
                 )
             if not 1 <= self.ADMIN_WEBAUTHN_RECOVERY_TOKEN_TTL_MINUTES <= 30:
                 raise ValueError("ADMIN_WEBAUTHN_RECOVERY_TOKEN_TTL_MINUTES must be between 1 and 30")
-
-        if self.ADMIN_SERVICE_TOKEN and self.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN:
-            _config_logger.warning(
-                "ENABLE_LEGACY_ADMIN_SERVICE_TOKEN is active: ADMIN_SERVICE_TOKEN grants "
-                "read+notify+delete access on /api/admin/service/*. This is deprecated and "
-                "scheduled for removal — migrate to the scoped SERVICE_TOKEN_READ/"
-                "SERVICE_TOKEN_NOTIFY/SERVICE_TOKEN_DELETE credentials, then unset both "
-                "ADMIN_SERVICE_TOKEN and ENABLE_LEGACY_ADMIN_SERVICE_TOKEN."
-            )
-        elif self.ADMIN_SERVICE_TOKEN and not self.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN:
-            _config_logger.warning(
-                "ADMIN_SERVICE_TOKEN is set but inactive: ENABLE_LEGACY_ADMIN_SERVICE_TOKEN "
-                "is not enabled, so this token grants no access. Set "
-                "ENABLE_LEGACY_ADMIN_SERVICE_TOKEN=true to activate it (deprecated), or remove "
-                "ADMIN_SERVICE_TOKEN and use the scoped SERVICE_TOKEN_* credentials instead."
-            )
 
         if not is_production:
             return self
@@ -472,6 +468,15 @@ class Settings(BaseSettings):
             mail_from_domain = mail_from_email.rsplit("@", 1)[-1].lower()
             if mail_from_domain in {"localhost", "localtest.me"} or mail_from_domain.endswith(".local"):
                 raise ValueError("MAIL_FROM_EMAIL must use a real domain when using a real mail provider")
+
+            feedback_to_email = self.FEEDBACK_REPORT_TO_EMAIL.strip()
+            if not feedback_to_email or "@" not in feedback_to_email:
+                raise ValueError(
+                    "FEEDBACK_REPORT_TO_EMAIL must be a real address you monitor when using a "
+                    "real mail provider — user problem reports are delivered there"
+                )
+            if feedback_to_email.rsplit("@", 1)[-1].lower() in {"example.com", "example.org", "example.net"}:
+                raise ValueError("FEEDBACK_REPORT_TO_EMAIL must not use a reserved example domain")
 
             parsed_web_base_url = urlparse(self.WEB_BASE_URL.strip())
             web_base_host = parsed_web_base_url.hostname.lower() if parsed_web_base_url.hostname else ""

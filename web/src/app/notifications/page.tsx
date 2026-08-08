@@ -29,6 +29,7 @@ import {
 import { getPostHref, getProfileHref } from '../../lib/routes'
 import { tokens } from '../../styles/tokens'
 import type { Notification, NotificationSettings, PushSubscriptionRecord, PushSubscriptionsResponse } from '../../types'
+import { UserImage } from '../../components/UserImage'
 
 type NotificationTab = 'all' | 'mentions'
 type BrowserNotificationState = NotificationPermission | 'unsupported'
@@ -205,7 +206,7 @@ function ActorAvatar({
       }}
     >
       {resolvedAvatar ? (
-        <img src={resolvedAvatar} alt={username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        <UserImage src={resolvedAvatar} alt={username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       ) : (
         initial
       )}

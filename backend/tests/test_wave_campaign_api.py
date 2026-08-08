@@ -130,7 +130,7 @@ class FakeCampaignDB:
         return None
 
 
-class Phase3WaveCampaignApiTests(unittest.TestCase):
+class WaveCampaignApiTests(unittest.TestCase):
     def setUp(self):
         app.dependency_overrides.clear()
 

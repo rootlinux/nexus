@@ -86,12 +86,55 @@ from moderators who previously had it.
   containing a path or query string. Attachment and media URLs are always
   built from this configured value, never from the incoming request's `Host`
   header.
+- **`APP_HOST` and `API_HOST` are required, not defaulted.** They are the public
+  hostnames Caddy terminates TLS for. They previously defaulted to `app.example.com` /
+  `api.example.com`, which meant an unconfigured stack asked Let's Encrypt for a
+  certificate for a domain it does not own; Compose now refuses to start without them.
+- **`FEEDBACK_REPORT_TO_EMAIL` is required whenever a real mail provider is
+  configured.** In-app problem reports (and the signed attachment links inside them) are
+  delivered there. It used to default to a placeholder `example.com` address, so an
+  unconfigured deployment mailed real user reports into a void with no error. Startup now
+  rejects an empty value and any reserved `example.*` domain.
+- **`ADMIN_SERVICE_TOKEN` / `ENABLE_LEGACY_ADMIN_SERVICE_TOKEN` no longer
+  exist.** `/api/admin/service/*` is authenticated only by the independent
+  `SERVICE_TOKEN_READ` / `SERVICE_TOKEN_NOTIFY` / `SERVICE_TOKEN_DELETE`
+  credentials. Issue each consumer only the scope it needs, and **unset both
+  removed variables everywhere** — including any `.env` file the backend
+  reads, where a leftover key now aborts startup with
+  `Extra inputs are not permitted`. Leftover *process* environment variables
+  (e.g. from a Compose file) are ignored rather than fatal, so grep your
+  deployment config as well as your `.env`.
 - **`SIGNING_KEY_LEGACY_VERIFY_UNTIL` is optional and must be time-bounded.**
   Only set it if this deployment needs to continue honoring signed artifacts
   (e.g. outstanding feedback-attachment links) issued before the signing-key
   purpose separation took effect. If set, use a real, specific future UTC
   timestamp — never a placeholder or an open-ended value — so legacy
   verification support automatically expires.
+
+### Renaming a pre-Nexus database
+
+Stacks first deployed before the project was renamed to Nexus hold their data
+in a PostgreSQL database named `xplatform`. The Compose default is now
+`nexus`. **`POSTGRES_DB` only creates a database on a fresh data directory —
+it never renames an existing one**, so an upgraded stack pointed at the new
+name would connect to a database that does not exist and the old data would
+appear to have vanished. Pick one, once:
+
+- **Keep the old name (no downtime, nothing to run):** set
+  `POSTGRES_DB=xplatform` in your deployment env file. Fully supported; the
+  name is just a string.
+- **Rename in place:** stop the app, run the rename, restart.
+
+  ```bash
+  docker compose -f deploy/docker-compose.yml stop backend web
+  ./deploy/scripts/rename-legacy-database.sh
+  docker compose -f deploy/docker-compose.yml up -d
+  ```
+
+  The script refuses to act if the target name already exists or if any
+  connection to the legacy database is still open, and it renames rather than
+  copies — no data is dropped or rewritten. Take the section 1 backup first
+  regardless.
 
 ## 4. Deploy
 

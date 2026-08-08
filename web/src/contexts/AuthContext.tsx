@@ -4,11 +4,11 @@ import type { AuthenticationResponseJSON } from '@simplewebauthn/browser';
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { PendingEmailVerificationResponse, User, Token, isMFARequired } from '../types';
-import { login as apiLogin, register as apiRegister, getMe, logout as apiLogout, webauthnAuthComplete, webauthnAuthBegin } from '../lib/api';
+import { login as apiLogin, register as apiRegister, getMe, logout as apiLogout, webauthnAuthComplete } from '../lib/api';
 import { AuthArrivalState, clearArrivalState as clearStoredArrivalState, readArrivalState, writeArrivalState } from '../lib/arrival';
 import { ActivationAction, ActivationSurface, MemberActivationState, isMemberActivationActive, markActivationActionCompleted, markActivationSurfaceVisited, readMemberActivationState, syncMemberActivationState, writeMemberActivationState } from '../lib/activation';
 import { RecentConversationState, ReturningSessionState, clearReturningSessionState, dismissReturningSession, readReturningSessionState, saveRecentConversation as persistRecentConversation, syncReturningSessionState } from '../lib/reentry';
-import { bootstrapSession, bootstrapSessionData, clearSessionState, getAccessToken, subscribeToAccessToken } from '../lib/session';
+import { bootstrapSessionData, clearSessionState, getAccessToken, subscribeToAccessToken } from '../lib/session';
 
 interface AuthContextType {
   user: User | null;

@@ -8,6 +8,7 @@ import { getPostHref, getProfileHref, type ConversationEntryPoint } from '../../
 import { tokens } from '../../styles/tokens'
 import type { Post, User } from '../../types'
 import { getMemberTrustFacts } from './postSurfaceHelpers'
+import { UserImage } from '../UserImage'
 
 export function PostCard({
   children,
@@ -114,7 +115,7 @@ export function PostAvatar({
       }}
     >
       {user.avatar_url ? (
-        <img
+        <UserImage
           src={resolveMediaUrl(user.avatar_url) || undefined}
           alt={user.username}
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
@@ -233,7 +234,7 @@ export function PostMediaBlock({
         border: `1px solid ${tokens.colors.border}`,
       }}
     >
-      <img
+      <UserImage
         src={resolvedMediaUrl}
         alt="Post media"
         style={{ width: '100%', maxHeight: `${maxHeight}px`, objectFit: 'cover', display: 'block' }}

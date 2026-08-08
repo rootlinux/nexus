@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-COMPOSE_FILE="$ROOT_DIR/deploy/docker-compose.yml"
-ENV_FILE="$ROOT_DIR/deploy/.env.docker"
-
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" stop
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+exec "$ROOT_DIR/STOP-DOCKER.command" "$@"

@@ -9,6 +9,7 @@ import { getProfileHref } from '../../lib/routes'
 import { getAvatarColor, tokens } from '../../styles/tokens'
 import type { SuggestedUser } from '../../types'
 import { getMemberTrustFacts } from '../PostSurface'
+import { UserImage } from '../UserImage'
 
 const RAIL_CACHE_TTL_MS = 60_000
 
@@ -163,7 +164,7 @@ export function SuggestionsSection({ activationActive }: SuggestionsSectionProps
                 }}
               >
                 {user.avatar_url ? (
-                  <img src={resolveMediaUrl(user.avatar_url) || undefined} alt={user.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <UserImage src={resolveMediaUrl(user.avatar_url) || undefined} alt={user.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
                   user.username.charAt(0).toUpperCase()
                 )}

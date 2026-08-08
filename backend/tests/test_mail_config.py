@@ -44,7 +44,8 @@ class MailConfigTests(unittest.TestCase):
                 "MAIL_FROM_EMAIL": "no-reply@example.com",
                 "MAIL_FROM_NAME": "Example App",
                 "WEB_BASE_URL": "https://app.example.com",
-                "ADMIN_SERVICE_TOKEN": secrets.token_hex(32),
+                "SERVICE_TOKEN_READ": secrets.token_hex(32),
+                "FEEDBACK_REPORT_TO_EMAIL": "feedback@example-real-domain.test",
                 "API_PUBLIC_BASE_URL": "https://api.example.com",
             }
         )
@@ -60,6 +61,26 @@ class MailConfigTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+
+    def test_production_resend_requires_a_real_feedback_report_mailbox(self):
+        # The old default was a placeholder example.com address, so an unconfigured
+        # production deployment mailed real user problem reports (and the signed
+        # attachment links inside them) nowhere, silently. Fail at boot instead.
+        for value in ("", "   ", "not-an-email", "beta@example.com", "reports@example.org"):
+            with self.subTest(value=value):
+                result = self._load_settings_process(
+                    self._production_env(FEEDBACK_REPORT_TO_EMAIL=value)
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("FEEDBACK_REPORT_TO_EMAIL", result.stderr)
+
+    def test_capture_provider_does_not_require_a_feedback_report_mailbox(self):
+        # capture writes to disk, so there is no address to require — a local or smoke
+        # stack must not be forced to invent one.
+        result = self._load_settings_process(
+            self._production_env(MAIL_PROVIDER="capture", FEEDBACK_REPORT_TO_EMAIL="")
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_message_builders_include_from_fields(self):
         with patch("app.services.mail.settings.MAIL_FROM_EMAIL", "no-reply@example.com"), patch(

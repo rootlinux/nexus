@@ -977,6 +977,54 @@ export const webauthnRegisterComplete = async (
   return response.data as WebAuthnCredential;
 };
 
+/**
+ * First-passkey enrolment for a privileged account that has none yet.
+ *
+ * Ordinary passkey registration needs a session, and a staff account cannot obtain a
+ * session without a passkey — so the very first admin credential has to come from
+ * somewhere else. These three calls are that path. They go through `authBypassApi`
+ * because there is deliberately no session to attach.
+ *
+ * The backend answers 404 unless ENABLE_ADMIN_WEBAUTHN_RECOVERY is on (rejected
+ * outright in production) and 403 unless the identifier matches the single configured
+ * account, that account is staff, and it owns no credential yet. The moment a key is
+ * registered the path closes itself.
+ */
+export const requestAdminEnrollmentToken = async (
+  username: string,
+  password: string,
+): Promise<{ recovery_token: string; expires_in_seconds: number }> => {
+  const response = await authBypassApi.post('/api/auth/admin-recovery/webauthn-token', {
+    username,
+    password,
+  });
+  return response.data as { recovery_token: string; expires_in_seconds: number };
+};
+
+/** Begin first-passkey enrolment – exchanges the enrolment token for creation options */
+export const adminEnrollmentRegisterBegin = async (
+  recoveryToken: string,
+): Promise<PublicKeyCredentialCreationOptionsJSON> => {
+  const response = await authBypassApi.post('/api/webauthn/recovery/register/begin', {
+    recovery_token: recoveryToken,
+  });
+  return response.data.options as PublicKeyCredentialCreationOptionsJSON;
+};
+
+/** Complete first-passkey enrolment – persists the credential and burns the token */
+export const adminEnrollmentRegisterComplete = async (
+  recoveryToken: string,
+  credential: RegistrationResponseJSON,
+  name: string,
+): Promise<WebAuthnCredential> => {
+  const response = await authBypassApi.post('/api/webauthn/recovery/register/complete', {
+    recovery_token: recoveryToken,
+    credential,
+    name,
+  });
+  return response.data as WebAuthnCredential;
+};
+
 /** Begin authentication – requires the short-lived mfa_session_token */
 export const webauthnAuthBegin = async (
   mfaSessionToken: string,

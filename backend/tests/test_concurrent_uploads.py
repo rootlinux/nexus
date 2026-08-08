@@ -45,6 +45,13 @@ class ConcurrentUploadsTests(unittest.IsolatedAsyncioTestCase):
     test_storage_async_offload.py."""
 
     async def asyncSetUp(self):
+        # Clear any overrides left behind by previously-run tests before
+        # installing our own — without this the test inherits foreign
+        # dependency overrides (e.g. require_admin_session from an earlier
+        # admin test) and the upload route resolves wrong dependencies,
+        # producing an intermittent non-201 response.
+        app.dependency_overrides.clear()
+
         self.temp_upload_dir = tempfile.mkdtemp(prefix="concurrent-uploads-test-")
         self._original_upload_dir = settings.LOCAL_UPLOAD_DIR
         settings.LOCAL_UPLOAD_DIR = self.temp_upload_dir

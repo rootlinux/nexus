@@ -79,14 +79,10 @@ class AdminServiceScopedAuthTests(unittest.TestCase):
     def setUp(self):
         app.dependency_overrides.clear()
         self._original_tokens = {
-            "ADMIN_SERVICE_TOKEN": settings.ADMIN_SERVICE_TOKEN,
-            "ENABLE_LEGACY_ADMIN_SERVICE_TOKEN": settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN,
             "SERVICE_TOKEN_READ": settings.SERVICE_TOKEN_READ,
             "SERVICE_TOKEN_NOTIFY": settings.SERVICE_TOKEN_NOTIFY,
             "SERVICE_TOKEN_DELETE": settings.SERVICE_TOKEN_DELETE,
         }
-        settings.ADMIN_SERVICE_TOKEN = ""
-        settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN = False
         settings.SERVICE_TOKEN_READ = "read-token"
         settings.SERVICE_TOKEN_NOTIFY = "notify-token"
         settings.SERVICE_TOKEN_DELETE = "delete-token"
@@ -121,19 +117,12 @@ class AdminServiceScopedAuthTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()), 1)
 
-    def test_read_endpoint_rejects_legacy_admin_token_when_not_explicitly_enabled(self):
-        settings.ADMIN_SERVICE_TOKEN = "legacy-token"
-        settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN = False
+    def test_read_endpoint_rejects_removed_legacy_admin_token(self):
+        # The all-scopes ADMIN_SERVICE_TOKEN fallback was removed. Its value is now just
+        # an unrecognised token on every endpoint, including the read one it used to open.
         client = self._client([[]])
         response = client.get("/api/admin/service/users", headers={"X-Service-Token": "legacy-token"})
         self.assertEqual(response.status_code, 403)
-
-    def test_read_endpoint_accepts_legacy_admin_token_when_explicitly_enabled(self):
-        settings.ADMIN_SERVICE_TOKEN = "legacy-token"
-        settings.ENABLE_LEGACY_ADMIN_SERVICE_TOKEN = True
-        client = self._client([[build_user(1)]])
-        response = client.get("/api/admin/service/users", headers={"X-Service-Token": "legacy-token"})
-        self.assertEqual(response.status_code, 200)
 
     def test_delete_user_rejects_read_scoped_token(self):
         client = self._client([build_user(2)])
@@ -154,7 +143,7 @@ class AdminServiceScopedAuthTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
-    def test_no_scoped_or_legacy_tokens_configured_leaves_service_endpoints_fail_closed(self):
+    def test_no_tokens_configured_leaves_service_endpoints_fail_closed(self):
         # No token configured for any scope at all: the app must still start and serve
         # requests normally — admin_service.* endpoints just always reject, rather than
         # the process refusing to boot (a hard startup requirement here would force every
@@ -162,7 +151,6 @@ class AdminServiceScopedAuthTests(unittest.TestCase):
         settings.SERVICE_TOKEN_READ = ""
         settings.SERVICE_TOKEN_NOTIFY = ""
         settings.SERVICE_TOKEN_DELETE = ""
-        settings.ADMIN_SERVICE_TOKEN = ""
 
         client = self._client([[]])
         self.assertEqual(

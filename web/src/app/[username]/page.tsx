@@ -12,6 +12,7 @@ import { resolveMediaUrl } from '../../lib/media'
 import { getProfileHref } from '../../lib/routes'
 import { tokens } from '../../styles/tokens'
 import type { User, Post } from '../../types'
+import { UserImage } from '../../components/UserImage'
 
 type TimelineView = 'posts' | 'replies' | 'media' | 'likes' | 'reposts'
 
@@ -20,12 +21,10 @@ function formatMemberSince(dateStr: string) {
 }
 
 function FollowersModal({
-  username,
   initialUsers,
   title,
   onClose,
 }: {
-  username: string
   initialUsers: Array<{ id: number; username: string; display_name?: string | null; avatar_url: string | null }>
   title: string
   onClose: () => void
@@ -91,7 +90,7 @@ function FollowersModal({
                   }}
                 >
                   {user.avatar_url ? (
-                    <img src={resolveMediaUrl(user.avatar_url) ?? ''} alt={user.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <UserImage src={resolveMediaUrl(user.avatar_url) ?? ''} alt={user.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
                     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <UserPlus size={20} color={tokens.colors.textMuted} />
@@ -112,8 +111,6 @@ function FollowersModal({
 }
 
 // ─── Image Crop Helper ───────────────────────────────────────────────────────
-
-type CropType = 'avatar' | 'cover'
 
 type PendingCrop = {
   imageUrl: string
@@ -468,7 +465,7 @@ function EditProfileModal({
 
       onSave()
       onClose()
-    } catch (err) {
+    } catch {
       setError('Failed to save profile. Please try again.')
     } finally {
       setIsSaving(false)
@@ -571,7 +568,7 @@ function EditProfileModal({
                 }}
               >
                 {avatarPreview ? (
-                  <img src={avatarPreview} alt={profile.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <UserImage src={avatarPreview} alt={profile.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
                   <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: tokens.colors.textMuted }}>
                     <UserPlus size={32} />
@@ -761,7 +758,6 @@ function ProfileHeader({
   profile,
   isOwnProfile,
   isFollowing,
-  isAdmin,
   onFollowToggle,
   followingLoading,
   onFollowersClick,
@@ -772,7 +768,6 @@ function ProfileHeader({
   profile: User
   isOwnProfile: boolean
   isFollowing: boolean
-  isAdmin: boolean
   onFollowToggle: () => void
   followingLoading: boolean
   onFollowersClick: () => void
@@ -788,7 +783,7 @@ function ProfileHeader({
       <div className="profile-cover">
         {coverUrl ? (
           <div className="profile-cover-media">
-            <img src={coverUrl} alt="" />
+            <UserImage src={coverUrl} alt="" />
           </div>
         ) : (
           <div className="profile-cover-base" />
@@ -810,7 +805,7 @@ function ProfileHeader({
               }}
             >
               {avatarUrl ? (
-                <img src={avatarUrl} alt={profile.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <UserImage src={avatarUrl} alt={profile.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
                 <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <UserPlus size={32} color={tokens.colors.textMuted} />
@@ -1026,7 +1021,7 @@ function PostCard({ post }: { post: Post }) {
               }}
             >
               {avatarUrl ? (
-                <img src={avatarUrl ?? ''} alt={post.author.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <UserImage src={avatarUrl ?? ''} alt={post.author.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
                 <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <UserPlus size={20} color={tokens.colors.textMuted} />
@@ -1049,7 +1044,7 @@ function PostCard({ post }: { post: Post }) {
           </div>
           {mediaUrl && (
             <div style={{ marginTop: 12, borderRadius: 12, overflow: 'hidden', maxHeight: 300 }}>
-              <img src={mediaUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <UserImage src={mediaUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </div>
           )}
         </div>
@@ -1234,7 +1229,6 @@ export default function ProfilePage() {
           profile={profile}
           isOwnProfile={isOwnProfile}
           isFollowing={profile.is_following || false}
-          isAdmin={isAdmin}
           onFollowToggle={handleFollowToggle}
           followingLoading={followingLoading}
           onFollowersClick={handleFollowersClick}
@@ -1268,7 +1262,6 @@ export default function ProfilePage() {
 
         {modalType === 'followers' && (
           <FollowersModal
-            username={username}
             initialUsers={followersList}
             title={`${profile.followers_count ?? 0} Followers`}
             onClose={closeModal}
@@ -1277,7 +1270,6 @@ export default function ProfilePage() {
 
         {modalType === 'following' && (
           <FollowersModal
-            username={username}
             initialUsers={followingList}
             title={`${profile.following_count ?? 0} Following`}
             onClose={closeModal}

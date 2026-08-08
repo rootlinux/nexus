@@ -1,7 +1,7 @@
 'use client'
 
 import type { FormEvent } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import StaffManagementPanel from '../../components/admin/StaffManagementPanel'
 import WaitlistAdminPanel from '../../components/admin/WaitlistAdminPanel'
@@ -26,6 +26,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { resolveMediaUrl } from '../../lib/media'
 import { getProfileHref } from '../../lib/routes'
 import { tokens } from '../../styles/tokens'
+import { UserImage } from '../../components/UserImage'
 
 type UserStatus = 'active' | 'frozen' | 'suspended' | 'banned'
 type InviteStatus = 'active' | 'used' | 'expired' | 'inactive'
@@ -477,7 +478,7 @@ export default function AdminPage() {
     }
 
     void resolveAdminSession()
-  }, [isAuthLoading, logout, router, token, user])
+  }, [isAuthLoading, router, token, user])
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-'
@@ -581,7 +582,7 @@ export default function AdminPage() {
     }
   }
 
-  const visibleTabs: AdminTab[] = [
+  const visibleTabs: AdminTab[] = useMemo(() => [
     'users',
     ...(adminSession?.capabilities.can_read_invites || adminSession?.capabilities.can_create_invites ? ['invites' as const] : []),
     ...(adminSession?.capabilities.can_manage_campaigns ? ['campaigns' as const] : []),
@@ -589,7 +590,7 @@ export default function AdminPage() {
     ...(adminSession?.capabilities.can_manage_moderators ? ['moderators' as const] : []),
     ...(adminSession?.capabilities.can_read_waitlist || adminSession?.capabilities.can_manage_waitlist ? ['waitlist' as const] : []),
     ...(adminSession?.capabilities.can_read_audit_log ? ['audit' as const] : []),
-  ]
+  ], [adminSession])
 
   useEffect(() => {
     if (!visibleTabs.includes(activeTab)) {
@@ -1580,7 +1581,7 @@ export default function AdminPage() {
           {displayPost.content || '[No text content]'}
         </div>
         {mediaUrl && (
-          <img
+          <UserImage
             src={mediaUrl}
             alt="Post media"
             style={{ width: '100%', maxHeight: '280px', objectFit: 'cover', borderRadius: tokens.radius.md, border: `1px solid ${tokens.colors.border}` }}
@@ -3231,7 +3232,7 @@ export default function AdminPage() {
                     <span style={{ color: tokens.colors.textSecondary, fontSize: tokens.font.sm }}>
                       Media preview {selectedModerationSignal.review_status === 'open' ? '(review copy)' : ''}
                     </span>
-                    <img
+                    <UserImage
                       src={resolveMediaUrl(selectedModerationSignal.media_preview_url) || undefined}
                       alt="Flagged media"
                       style={{ width: '100%', borderRadius: tokens.radius.md, border: `1px solid ${tokens.colors.border}` }}
@@ -3389,7 +3390,7 @@ export default function AdminPage() {
           </aside>
         </div>
       ) : activeTab === 'waitlist' ? (
-        <WaitlistAdminPanel token={token ?? ''} canManage={Boolean(adminSession?.capabilities.can_manage_waitlist)} />
+        <WaitlistAdminPanel canManage={Boolean(adminSession?.capabilities.can_manage_waitlist)} />
       ) : activeTab === 'audit' ? (
         <section
           style={{

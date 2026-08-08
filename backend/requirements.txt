@@ -1,3 +1,10 @@
+# Runtime dependencies only — this is what ships inside the production image.
+# Test and lint tooling lives in requirements-dev.txt, which installs this file first.
+#
+# Every version is exact-pinned so an image rebuilt six months from now resolves to the
+# same tree it was tested against. Dependabot proposes bumps against these pins; review
+# and merge them rather than loosening a constraint to "get the latest".
+
 # FastAPI
 fastapi==0.140.7
 uvicorn[standard]==0.34.0
@@ -22,14 +29,17 @@ aiocache==0.12.2
 slowapi==0.1.9
 
 # Utilities
-httpx==0.26.0
 python-dotenv==1.2.2
 bcrypt==4.0.1
 zxcvbn==4.4.28
 Pillow==12.3.0
-cryptography==48.0.1
+cryptography==50.0.0
+# Transitive (webauthn -> pyOpenSSL), pinned because the pairing is load-bearing: only
+# pyOpenSSL >= 26.3 accepts cryptography 50, and cryptography < 50 carries PYSEC-2026-3552,
+# -3553 and -3554. Leaving pyOpenSSL unpinned lets a resolver quietly pick an older release
+# and drag cryptography back down with it.
+pyOpenSSL==26.4.0
 greenlet==3.2.1
 webauthn==2.1.0
-pytest==9.0.3
-resend>=2.0.0
+resend==2.35.0
 pywebpush==2.0.3

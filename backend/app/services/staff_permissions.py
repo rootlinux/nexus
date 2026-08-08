@@ -29,7 +29,7 @@ STAFF_PERMISSION_FIELDS = (
     "can_view_feedback",
 )
 
-PHASE1_EDITABLE_PERMISSION_FIELDS = (
+EDITABLE_STAFF_PERMISSION_FIELDS = (
     "can_create_invites",
     "can_view_moderation_queue",
     "can_moderate_posts",
@@ -214,7 +214,7 @@ def sanitize_invite_quota_monthly(value: int | None) -> int | None:
         return None
     if value < 0 or value > MAX_INVITE_QUOTA_MONTHLY:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"invite_quota_monthly must be between 0 and {MAX_INVITE_QUOTA_MONTHLY}",
         )
     return value
@@ -257,7 +257,7 @@ def apply_staff_permission_updates(
     staff_permission.invite_quota_monthly = sanitize_invite_quota_monthly(normalized_quota)
 
     merged = {field_name: defaults[field_name] for field_name in STAFF_PERMISSION_FIELDS}
-    merged.update({field_name: bool(value) for field_name, value in updates.items() if field_name in PHASE1_EDITABLE_PERMISSION_FIELDS})
+    merged.update({field_name: bool(value) for field_name, value in updates.items() if field_name in EDITABLE_STAFF_PERMISSION_FIELDS})
 
     if role == StaffRole.MODERATOR:
         merged["can_manage_moderators"] = False

@@ -3,7 +3,7 @@ from fastapi import HTTPException, Request, UploadFile, status
 
 class PayloadTooLargeError(HTTPException):
     def __init__(self, detail: str = "Uploaded file is too large.") -> None:
-        super().__init__(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=detail)
+        super().__init__(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=detail)
 
 
 def reject_by_content_length_hint(request: Request, *, limit: int) -> None:
